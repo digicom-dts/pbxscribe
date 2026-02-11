@@ -103,6 +103,51 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Select [3, !Cidr [!Ref VpcCIDR, 16, 4]]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-public-subnet-1'
+        - Key: Type
+          Value: Public
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Select [4, !Cidr [!Ref VpcCIDR, 16, 4]]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-public-subnet-2'
+        - Key: Type
+          Value: Public
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [2, !GetAZs '']
+      CidrBlock: !Select [5, !Cidr [!Ref VpcCIDR, 16, 4]]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-public-subnet-3'
+        - Key: Type
+          Value: Public
+        - Key: Environment
+          Value: !Ref Environment
+
 Outputs:
   VPCId:
     Description: VPC ID
@@ -145,3 +190,21 @@ Outputs:
     Value: !Ref DatabaseSubnet3
     Export:
       Name: !Sub '${ProjectName}-${Environment}-database-subnet-3'
+
+  PublicSubnet1Id:
+    Description: Public Subnet 1 ID
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-public-subnet-1'
+
+  PublicSubnet2Id:
+    Description: Public Subnet 2 ID
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-public-subnet-2'
+
+  PublicSubnet3Id:
+    Description: Public Subnet 3 ID
+    Value: !Ref PublicSubnet3
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-public-subnet-3'
