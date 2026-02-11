@@ -1,0 +1,64 @@
+# =============================================================================
+# Foundation Network Infrastructure - VPC
+# =============================================================================
+# This file is REQUIRED for all other infrastructure files.
+# Deploy this stack first before any other stacks.
+#
+# CIDR Information:
+# - /16 CIDR (e.g., 10.42.0.0/16):
+#   - Total IPs: 65,536
+#   - Can create 16 /20 subnets
+#
+# - /20 CIDR (e.g., 10.42.0.0/20):
+#   - Total IPs: 4,096
+#   - Usable IPs: 4,091 (AWS reserves 5 IPs per subnet)
+#   - Reserved IPs:
+#     * .0   - Network address
+#     * .1   - VPC router
+#     * .2   - DNS server
+#     * .3   - Future use
+#     * Last IP - Broadcast address
+# =============================================================================
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Foundation Network Infrastructure - VPC'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name
+
+  ProjectName:
+    Type: String
+    Default: pbxscribe
+    Description: Project name used for resource naming
+
+  VpcCIDR:
+    Type: String
+    Default: 10.42.0.0/16
+    Description: CIDR block for VPC
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-vpc'
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  VPCId:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-vpc-id'
