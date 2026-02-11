@@ -1,5 +1,5 @@
 # =============================================================================
-# Foundation Network Infrastructure - VPC
+# Foundation Network Infrastructure - VPC, Subnets, Route Tables, Security Groups
 # =============================================================================
 # This file is REQUIRED for all other infrastructure files.
 # Deploy this stack first before any other stacks.
@@ -21,7 +21,7 @@
 # =============================================================================
 
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Foundation Network Infrastructure - VPC'
+Description: 'Foundation Network Infrastructure - VPC, Subnets, Route Tables, Security Groups'
 
 Parameters:
   Environment:
@@ -41,7 +41,9 @@ Parameters:
   VpcCIDR:
     Type: String
     Default: 10.42.0.0/16
-    Description: CIDR block for VPC
+    Description: CIDR block for VPC (must be /16)
+    AllowedPattern: '^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])/16$'
+    ConstraintDescription: Must be a valid /16 CIDR block (e.g., 10.42.0.0/16)
 
 Resources:
   VPC:
@@ -56,9 +58,90 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+  DatabaseSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Select [0, !Cidr [!Ref VpcCIDR, 16, 4]]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-database-subnet-1'
+        - Key: Type
+          Value: Database
+        - Key: Environment
+          Value: !Ref Environment
+
+  DatabaseSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Select [1, !Cidr [!Ref VpcCIDR, 16, 4]]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-database-subnet-2'
+        - Key: Type
+          Value: Database
+        - Key: Environment
+          Value: !Ref Environment
+
+  DatabaseSubnet3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [2, !GetAZs '']
+      CidrBlock: !Select [2, !Cidr [!Ref VpcCIDR, 16, 4]]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-database-subnet-3'
+        - Key: Type
+          Value: Database
+        - Key: Environment
+          Value: !Ref Environment
+
 Outputs:
   VPCId:
     Description: VPC ID
     Value: !Ref VPC
     Export:
       Name: !Sub '${ProjectName}-${Environment}-vpc-id'
+
+  AvailabilityZone1:
+    Description: Availability Zone 1
+    Value: !Select [0, !GetAZs '']
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-az-1'
+
+  AvailabilityZone2:
+    Description: Availability Zone 2
+    Value: !Select [1, !GetAZs '']
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-az-2'
+
+  AvailabilityZone3:
+    Description: Availability Zone 3
+    Value: !Select [2, !GetAZs '']
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-az-3'
+
+  DatabaseSubnet1Id:
+    Description: Database Subnet 1 ID
+    Value: !Ref DatabaseSubnet1
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-database-subnet-1'
+
+  DatabaseSubnet2Id:
+    Description: Database Subnet 2 ID
+    Value: !Ref DatabaseSubnet2
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-database-subnet-2'
+
+  DatabaseSubnet3Id:
+    Description: Database Subnet 3 ID
+    Value: !Ref DatabaseSubnet3
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-database-subnet-3'
