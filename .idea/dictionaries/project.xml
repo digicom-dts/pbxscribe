@@ -4,6 +4,7 @@
       <w>natgatewayeip</w>
       <w>pbxscribe</w>
       <w>postgresql</w>
+      <w>secretsmanager</w>
       <w>vpccidr</w>
       <w>vpcgatewayattachment</w>
       <w>vpcid</w>
