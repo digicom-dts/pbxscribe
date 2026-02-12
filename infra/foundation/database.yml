@@ -51,7 +51,7 @@ Parameters:
       - '16'
       - '15'
       - '14'
-    Description: PostgreSQL - major version (18 is latest with skip scan, UUIDv7 support)
+    Description: PostgreSQL major version (AWS automatically uses latest minor version)
 
   DBInstanceClass:
     Type: String
@@ -90,6 +90,9 @@ Parameters:
       - 'false'
     Description: Enable Multi-AZ deployment for high availability (recommended for production)
 
+Conditions:
+  IsProduction: !Equals [!Ref Environment, 'prod']
+
 Resources:
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -123,7 +126,7 @@ Resources:
               - Fn::Cidr:
                 - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-vpc-cidr'
                 - 16
-                - 12
+                - 4
           Description: 'PostgreSQL access from App Subnet 1'
         - IpProtocol: tcp
           FromPort: 5432
@@ -134,7 +137,7 @@ Resources:
               - Fn::Cidr:
                 - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-vpc-cidr'
                 - 16
-                - 12
+                - 4
           Description: 'PostgreSQL access from App Subnet 2'
         - IpProtocol: tcp
           FromPort: 5432
@@ -145,7 +148,7 @@ Resources:
               - Fn::Cidr:
                 - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-vpc-cidr'
                 - 16
-                - 12
+                - 4
           Description: 'PostgreSQL access from App Subnet 3'
       Tags:
         - Key: Name
@@ -195,7 +198,7 @@ Resources:
       DBInstanceIdentifier: !Sub '${ProjectName}-${Environment}-db'
       DBName: !Ref DBName
       Engine: postgres
-      EngineVersion: !Sub '${PostgreSQLVersion}.1'
+      EngineVersion: !Ref PostgreSQLVersion
       DBInstanceClass: !Ref DBInstanceClass
       AllocatedStorage: !Ref DBAllocatedStorage
       StorageType: gp3
@@ -213,6 +216,8 @@ Resources:
       EnableCloudwatchLogsExports:
         - postgresql
         - upgrade
+      EnablePerformanceInsights: !If [IsProduction, true, false]
+      PerformanceInsightsRetentionPeriod: !If [IsProduction, 7, !Ref 'AWS::NoValue']
       DeletionProtection: true
       CopyTagsToSnapshot: true
       PubliclyAccessible: false
