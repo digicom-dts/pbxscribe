@@ -1,0 +1,57 @@
+# =============================================================================
+# Foundation Database Infrastructure - RDS PostgreSQL, RDS Proxy, Security Groups
+# =============================================================================
+# DEPENDENCIES:
+# - This stack REQUIRES infra/foundation/network.yml to be deployed first
+# - ProjectName and Environment parameters MUST match the network stack
+# - CloudFormation will fail if network stack exports are not available
+#
+# VALIDATION:
+# - Imports database subnets from network stack using Fn::ImportValue
+# - ProjectName must be 3-63 characters, lowercase letters, numbers, hyphens only
+# =============================================================================
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Foundation Database Infrastructure - RDS PostgreSQL, RDS Proxy, Security Groups'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name (must match the network stack environment)
+
+  ProjectName:
+    Type: String
+    Default: pbxscribe-api-backend
+    Description: Project name used for resource naming (must match the network stack project name)
+    AllowedPattern: '^[a-z0-9-]+$'
+    ConstraintDescription: Must contain only lowercase letters, numbers, and hyphens
+    MinLength: 3
+    MaxLength: 63
+
+Resources:
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub '${ProjectName}-${Environment}-db-subnet-group'
+      DBSubnetGroupDescription: !Sub 'DB Subnet Group for ${ProjectName} ${Environment}'
+      SubnetIds:
+        - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-database-subnet-1'
+        - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-database-subnet-2'
+        - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-database-subnet-3'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-db-subnet-group'
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  DBSubnetGroupName:
+    Description: DB Subnet Group Name
+    Value: !Ref DBSubnetGroup
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-db-subnet-group-name'
