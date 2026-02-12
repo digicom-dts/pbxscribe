@@ -342,6 +342,12 @@ Outputs:
     Export:
       Name: !Sub '${ProjectName}-${Environment}-vpc-id'
 
+  VpcCIDR:
+    Description: VPC CIDR Block
+    Value: !Ref VpcCIDR
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-vpc-cidr'
+
   InternetGatewayId:
     Description: Internet Gateway ID
     Value: !Ref InternetGateway

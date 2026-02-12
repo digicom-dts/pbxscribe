@@ -49,9 +49,62 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectName}-${Environment}-db-sg'
+      GroupDescription: !Sub 'Security group for ${ProjectName} ${Environment} RDS PostgreSQL database'
+      VpcId:
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-vpc-id'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp:
+            Fn::Select:
+              - 6
+              - Fn::Cidr:
+                - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-vpc-cidr'
+                - 16
+                - 12
+          Description: 'PostgreSQL access from App Subnet 1'
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp:
+            Fn::Select:
+              - 7
+              - Fn::Cidr:
+                - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-vpc-cidr'
+                - 16
+                - 12
+          Description: 'PostgreSQL access from App Subnet 2'
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp:
+            Fn::Select:
+              - 8
+              - Fn::Cidr:
+                - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-vpc-cidr'
+                - 16
+                - 12
+          Description: 'PostgreSQL access from App Subnet 3'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-db-sg'
+        - Key: Environment
+          Value: !Ref Environment
+
 Outputs:
   DBSubnetGroupName:
     Description: DB Subnet Group Name
     Value: !Ref DBSubnetGroup
     Export:
       Name: !Sub '${ProjectName}-${Environment}-db-subnet-group-name'
+
+  DBSecurityGroupId:
+    Description: Database Security Group ID
+    Value: !Ref DBSecurityGroup
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-db-sg-id'
