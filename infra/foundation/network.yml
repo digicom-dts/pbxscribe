@@ -342,6 +342,42 @@ Outputs:
     Export:
       Name: !Sub '${ProjectName}-${Environment}-vpc-id'
 
+  InternetGatewayId:
+    Description: Internet Gateway ID
+    Value: !Ref InternetGateway
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-igw-id'
+
+  NatGatewayId:
+    Description: NAT Gateway ID
+    Value: !Ref NatGateway
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-nat-gateway-id'
+
+  NatGatewayEIP:
+    Description: NAT Gateway Elastic IP
+    Value: !Ref NatGatewayEIP
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-nat-eip'
+
+  PublicRouteTableId:
+    Description: Public Route Table ID
+    Value: !Ref PublicRouteTable
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-public-rt-id'
+
+  AppRouteTableId:
+    Description: App Route Table ID
+    Value: !Ref AppRouteTable
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-app-rt-id'
+
+  DatabaseRouteTableId:
+    Description: Database Route Table ID
+    Value: !Ref DatabaseRouteTable
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-database-rt-id'
+
   AvailabilityZone1:
     Description: Availability Zone 1
     Value: !Select [0, !GetAZs '']
