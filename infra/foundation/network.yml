@@ -1,6 +1,8 @@
 # =============================================================================
 # Foundation Network Infrastructure - VPC, Subnets, Route Tables, Security Groups
 # =============================================================================
+# DEFAULT REGION: us-east-2 (Ohio)
+#
 # This file is REQUIRED for all other infrastructure files.
 # Deploy this stack first before any other stacks.
 #

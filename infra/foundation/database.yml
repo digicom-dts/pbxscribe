@@ -1,6 +1,8 @@
 # =============================================================================
 # Foundation Database Infrastructure - RDS PostgreSQL, RDS Proxy, Security Groups
 # =============================================================================
+# DEFAULT REGION: us-east-2 (Ohio)
+#
 # DEPENDENCIES:
 # - This stack REQUIRES infra/foundation/network.yml to be deployed first
 # - ProjectName and Environment parameters MUST match the network stack
