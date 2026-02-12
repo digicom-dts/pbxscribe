@@ -33,6 +33,15 @@ Parameters:
     MinLength: 3
     MaxLength: 63
 
+  DBMasterUsername:
+    Type: String
+    Default: postgres
+    Description: Master username for RDS PostgreSQL database
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters and underscores
+    MinLength: 1
+    MaxLength: 63
+
 Resources:
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -96,6 +105,23 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-db-secret'
+      Description: !Sub 'RDS PostgreSQL master credentials for ${ProjectName} ${Environment}'
+      GenerateSecretString:
+        SecretStringTemplate: !Sub '{"username":"${DBMasterUsername}"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\'
+        RequireEachIncludedType: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-db-secret'
+        - Key: Environment
+          Value: !Ref Environment
+
 Outputs:
   DBSubnetGroupName:
     Description: DB Subnet Group Name
@@ -108,3 +134,9 @@ Outputs:
     Value: !Ref DBSecurityGroup
     Export:
       Name: !Sub '${ProjectName}-${Environment}-db-sg-id'
+
+  DBSecretArn:
+    Description: Database Secret ARN
+    Value: !Ref DBSecret
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-db-secret-arn'
