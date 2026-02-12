@@ -42,6 +42,17 @@ Parameters:
     MinLength: 1
     MaxLength: 63
 
+  PostgreSQLVersion:
+    Type: String
+    Default: '18'
+    AllowedValues:
+      - '18'
+      - '17'
+      - '16'
+      - '15'
+      - '14'
+    Description: PostgreSQL - major version (18 is latest with skip scan, UUIDv7 support)
+
 Resources:
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -122,6 +133,23 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+  DBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      DBParameterGroupName: !Sub '${ProjectName}-${Environment}-db-params'
+      Description: !Sub 'Parameter group for ${ProjectName} ${Environment} PostgreSQL ${PostgreSQLVersion}'
+      Family: !Sub 'postgres${PostgreSQLVersion}'
+      Parameters:
+        shared_preload_libraries: 'pg_stat_statements'
+        log_statement: 'all'
+        log_min_duration_statement: '1000'
+        timezone: 'UTC'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-db-params'
+        - Key: Environment
+          Value: !Ref Environment
+
 Outputs:
   DBSubnetGroupName:
     Description: DB Subnet Group Name
@@ -140,3 +168,9 @@ Outputs:
     Value: !Ref DBSecret
     Export:
       Name: !Sub '${ProjectName}-${Environment}-db-secret-arn'
+
+  DBParameterGroupName:
+    Description: DB Parameter Group Name
+    Value: !Ref DBParameterGroup
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-db-params-name'
