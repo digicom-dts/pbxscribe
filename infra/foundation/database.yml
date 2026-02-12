@@ -222,6 +222,69 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+  DBProxyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-db-proxy-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: rds.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DBProxySecretsManagerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref DBSecret
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-db-proxy-role'
+        - Key: Environment
+          Value: !Ref Environment
+
+  DBProxy:
+    Type: AWS::RDS::DBProxy
+    Properties:
+      DBProxyName: !Sub '${ProjectName}-${Environment}-db-proxy'
+      EngineFamily: POSTGRESQL
+      Auth:
+        - AuthScheme: SECRETS
+          SecretArn: !Ref DBSecret
+          IAMAuth: DISABLED
+      RoleArn: !GetAtt DBProxyRole.Arn
+      VpcSubnetIds:
+        - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-app-subnet-1'
+        - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-app-subnet-2'
+        - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-app-subnet-3'
+      VpcSecurityGroupIds:
+        - !Ref DBSecurityGroup
+      RequireTLS: true
+      IdleClientTimeout: 1800
+      DebugLogging: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-db-proxy'
+        - Key: Environment
+          Value: !Ref Environment
+
+  DBProxyTargetGroup:
+    Type: AWS::RDS::DBProxyTargetGroup
+    Properties:
+      DBProxyName: !Ref DBProxy
+      TargetGroupName: default
+      DBInstanceIdentifiers:
+        - !Ref DBInstance
+      ConnectionPoolConfigurationInfo:
+        MaxConnectionsPercent: 100
+        MaxIdleConnectionsPercent: 50
+        ConnectionBorrowTimeout: 120
+
 Outputs:
   DBSubnetGroupName:
     Description: DB Subnet Group Name
@@ -270,3 +333,15 @@ Outputs:
     Value: !Ref DBName
     Export:
       Name: !Sub '${ProjectName}-${Environment}-db-name'
+
+  DBProxyEndpoint:
+    Description: RDS Proxy Endpoint
+    Value: !GetAtt DBProxy.Endpoint
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-db-proxy-endpoint'
+
+  DBProxyArn:
+    Description: RDS Proxy ARN
+    Value: !GetAtt DBProxy.DBProxyArn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-db-proxy-arn'
