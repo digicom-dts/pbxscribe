@@ -35,7 +35,7 @@ Parameters:
 
   ProjectName:
     Type: String
-    Default: pbxscribe
+    Default: pbxscribe-api-backend
     Description: Project name used for resource naming
 
   VpcCIDR:
@@ -72,6 +72,28 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       InternetGatewayId: !Ref InternetGateway
+
+  NatGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-nat-eip'
+        - Key: Environment
+          Value: !Ref Environment
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-nat-gateway'
+        - Key: Environment
+          Value: !Ref Environment
 
   DatabaseSubnet1:
     Type: AWS::EC2::Subnet
