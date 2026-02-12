@@ -3,9 +3,11 @@
     <words>
       <w>natgatewayeip</w>
       <w>pbxscribe</w>
+      <w>postgresql</w>
       <w>vpccidr</w>
       <w>vpcgatewayattachment</w>
       <w>vpcid</w>
+      <w>vpcsecuritygroups</w>
     </words>
   </dictionary>
 </component>

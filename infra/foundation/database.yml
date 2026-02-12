@@ -53,6 +53,43 @@ Parameters:
       - '14'
     Description: PostgreSQL - major version (18 is latest with skip scan, UUIDv7 support)
 
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+      - db.t3.large
+      - db.r6g.large
+      - db.r6g.xlarge
+      - db.r6g.2xlarge
+    Description: RDS instance class (t3 for dev/test, r6g for production)
+
+  DBAllocatedStorage:
+    Type: Number
+    Default: 100
+    MinValue: 20
+    MaxValue: 65536
+    Description: Allocated storage in GB (100 GB default, 20 GB minimum for gp3)
+
+  DBName:
+    Type: String
+    Default: pbxscribe
+    Description: Initial database name
+    AllowedPattern: '^[a-zA-Z][a-zA-Z0-9_]*$'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters and underscores
+    MinLength: 1
+    MaxLength: 63
+
+  MultiAZ:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Enable Multi-AZ deployment for high availability (recommended for production)
+
 Resources:
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -150,6 +187,41 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub '${ProjectName}-${Environment}-db'
+      DBName: !Ref DBName
+      Engine: postgres
+      EngineVersion: !Sub '${PostgreSQLVersion}.1'
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      StorageType: gp3
+      StorageEncrypted: true
+      MasterUsername: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:password}}'
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroup
+      DBParameterGroupName: !Ref DBParameterGroup
+      MultiAZ: !Ref MultiAZ
+      BackupRetentionPeriod: 7
+      PreferredBackupWindow: '03:00-04:00'
+      PreferredMaintenanceWindow: 'sun:04:00-sun:05:00'
+      EnableCloudwatchLogsExports:
+        - postgresql
+        - upgrade
+      DeletionProtection: true
+      CopyTagsToSnapshot: true
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-db'
+        - Key: Environment
+          Value: !Ref Environment
+
 Outputs:
   DBSubnetGroupName:
     Description: DB Subnet Group Name
@@ -174,3 +246,27 @@ Outputs:
     Value: !Ref DBParameterGroup
     Export:
       Name: !Sub '${ProjectName}-${Environment}-db-params-name'
+
+  DBInstanceIdentifier:
+    Description: RDS Instance Identifier
+    Value: !Ref DBInstance
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-db-identifier'
+
+  DBEndpointAddress:
+    Description: RDS Instance Endpoint Address
+    Value: !GetAtt DBInstance.Endpoint.Address
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-db-endpoint'
+
+  DBEndpointPort:
+    Description: RDS Instance Port
+    Value: !GetAtt DBInstance.Endpoint.Port
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-db-port'
+
+  DBName:
+    Description: Database Name
+    Value: !Ref DBName
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-db-name'
