@@ -284,3 +284,11 @@ Resources:
       IntegrationUri: !GetAtt ApiLambdaFunction.Arn
       PayloadFormatVersion: '2.0'
       TimeoutInMillis: 30000
+
+  # Default Route (catch-all)
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: '$default'
+      Target: !Sub 'integrations/${LambdaIntegration}'
