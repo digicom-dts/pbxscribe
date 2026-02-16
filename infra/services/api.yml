@@ -149,3 +149,60 @@ Resources:
           Value: !Sub '${ProjectName}-${Environment}-lambda-role'
         - Key: Environment
           Value: !Ref Environment
+
+  # =============================================================================
+  # Lambda Function
+  # =============================================================================
+  ApiLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-api'
+      Description: !Sub 'API Lambda function for ${ProjectName} ${Environment}'
+      Runtime: !Ref LambdaRuntime
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: !Ref LambdaMemorySize
+      Timeout: !Ref LambdaTimeout
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-app-subnet-1'
+          - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-app-subnet-2'
+          - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-app-subnet-3'
+      Environment:
+        Variables:
+          NODE_ENV: !Ref Environment
+          DB_HOST:
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-proxy-endpoint'
+          DB_PORT:
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-port'
+          DB_NAME:
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-name'
+          DB_SECRET_ARN:
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-secret-arn'
+          AWS_NODEJS_CONNECTION_REUSE_ENABLED: '1'
+      Code:
+        ZipFile: |
+          // Placeholder Lambda function
+          // Replace this with your actual Fastify application code
+          exports.handler = async (event) => {
+              console.log('Event:', JSON.stringify(event, null, 2));
+              return {
+                  statusCode: 200,
+                  headers: {
+                      'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                      message: 'API Lambda function deployed successfully!',
+                      environment: process.env.NODE_ENV,
+                      timestamp: new Date().toISOString(),
+                      path: event.rawPath || '/',
+                  }),
+              };
+          };
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-api'
+        - Key: Environment
+          Value: !Ref Environment
