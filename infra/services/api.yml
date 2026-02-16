@@ -206,3 +206,15 @@ Resources:
           Value: !Sub '${ProjectName}-${Environment}-api'
         - Key: Environment
           Value: !Ref Environment
+
+  # Lambda Log Group
+  ApiLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-${Environment}-api'
+      RetentionInDays: !If [IsProduction, 30, 7]
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-api-logs'
+        - Key: Environment
+          Value: !Ref Environment
