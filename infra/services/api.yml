@@ -1,0 +1,340 @@
+# =============================================================================
+# API Services Infrastructure - Lambda, API Gateway
+# =============================================================================
+# DEFAULT REGION: us-east-2 (Ohio)
+#
+# DEPENDENCIES:
+# - This stack REQUIRES infra/foundation/network.yml to be deployed first
+# - This stack REQUIRES infra/foundation/database.yml to be deployed first
+# - ProjectName and Environment parameters MUST match the foundation stacks
+# - CloudFormation will fail if network/database stack exports are not available
+#
+# ARCHITECTURE:
+# - Lambda function in VPC (to access RDS database)
+# - API Gateway HTTP API (cheaper and simpler than REST API)
+# - Connects to RDS via RDS Proxy (from database stack)
+# - Lambda uses Node.js runtime with Fastify framework
+#
+# NOTE: Custom domain configuration will be added later after pbxscribe.com
+#       is migrated to Route53
+# =============================================================================
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'API Services Infrastructure - Lambda, API Gateway'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name (must match the foundation stacks)
+
+  ProjectName:
+    Type: String
+    Default: pbxscribe-api-backend
+    Description: Project name used for resource naming (must match the foundation stacks)
+    AllowedPattern: '^[a-z0-9-]+$'
+    ConstraintDescription: Must contain only lowercase letters, numbers, and hyphens
+    MinLength: 3
+    MaxLength: 63
+
+  LambdaRuntime:
+    Type: String
+    Default: nodejs20.x
+    AllowedValues:
+      - nodejs18.x
+      - nodejs20.x
+      - nodejs22.x
+    Description: Node.js runtime version for Lambda
+
+  LambdaMemorySize:
+    Type: Number
+    Default: 512
+    MinValue: 128
+    MaxValue: 10240
+    Description: Lambda function memory size in MB (128 MB to 10,240 MB)
+
+  LambdaTimeout:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 900
+    Description: Lambda function timeout in seconds (1 to 900 seconds)
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, 'prod']
+
+Resources:
+  # =============================================================================
+  # Lambda Security Group
+  # =============================================================================
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectName}-${Environment}-lambda-sg'
+      GroupDescription: !Sub 'Security group for ${ProjectName} ${Environment} Lambda functions'
+      VpcId:
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-vpc-id'
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          DestinationSecurityGroupId:
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-sg-id'
+          Description: 'Allow PostgreSQL access to RDS database'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: 'Allow HTTPS outbound for AWS services (Secrets Manager, etc.)'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-lambda-sg'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Update Database Security Group to allow Lambda access
+  DBSecurityGroupIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId:
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-sg-id'
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !Ref LambdaSecurityGroup
+      Description: 'PostgreSQL access from Lambda functions'
+
+  # =============================================================================
+  # Lambda Execution Role
+  # =============================================================================
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: LambdaSecretsManagerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-secret-arn'
+        - PolicyName: LambdaCloudWatchLogsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ProjectName}-${Environment}-*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-lambda-role'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # =============================================================================
+  # Lambda Function
+  # =============================================================================
+  ApiLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ProjectName}-${Environment}-api'
+      Description: !Sub 'API Lambda function for ${ProjectName} ${Environment}'
+      Runtime: !Ref LambdaRuntime
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      MemorySize: !Ref LambdaMemorySize
+      Timeout: !Ref LambdaTimeout
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-app-subnet-1'
+          - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-app-subnet-2'
+          - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-app-subnet-3'
+      Environment:
+        Variables:
+          NODE_ENV: !Ref Environment
+          DB_HOST:
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-proxy-endpoint'
+          DB_PORT:
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-port'
+          DB_NAME:
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-name'
+          DB_SECRET_ARN:
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-secret-arn'
+          AWS_NODEJS_CONNECTION_REUSE_ENABLED: '1'
+      Code:
+        ZipFile: |
+          // Placeholder Lambda function
+          // Replace this with your actual Fastify application code
+          exports.handler = async (event) => {
+              console.log('Event:', JSON.stringify(event, null, 2));
+              return {
+                  statusCode: 200,
+                  headers: {
+                      'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                      message: 'API Lambda function deployed successfully!',
+                      environment: process.env.NODE_ENV,
+                      timestamp: new Date().toISOString(),
+                      path: event.rawPath || '/',
+                  }),
+              };
+          };
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-api'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Lambda Log Group
+  ApiLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${ProjectName}-${Environment}-api'
+      RetentionInDays: !If [IsProduction, 30, 7]
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-api-logs'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # =============================================================================
+  # API Gateway HTTP API
+  # =============================================================================
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-api'
+      Description: !Sub 'HTTP API for ${ProjectName} ${Environment}'
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - '*'
+        MaxAge: 300
+      Tags:
+        Name: !Sub '${ProjectName}-${Environment}-api'
+        Environment: !Ref Environment
+
+  # API Gateway Log Group
+  ApiGatewayLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/apigateway/${ProjectName}-${Environment}-api'
+      RetentionInDays: !If [IsProduction, 30, 7]
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-api-gateway-logs'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # API Gateway Stage
+  HttpApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: !Ref Environment
+      Description: !Sub '${Environment} stage'
+      AutoDeploy: true
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiGatewayLogGroup.Arn
+        Format: '$context.requestId $context.error.message $context.error.messageString'
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 5000
+        ThrottlingRateLimit: 2000
+      Tags:
+        Name: !Sub '${ProjectName}-${Environment}-api-stage'
+        Environment: !Ref Environment
+
+  # Lambda Integration
+  LambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ApiLambdaFunction.Arn
+      PayloadFormatVersion: '2.0'
+      TimeoutInMillis: 30000
+
+  # Default Route (catch-all)
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: '$default'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+
+  # Lambda Permission for API Gateway
+  ApiGatewayInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiLambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
+
+Outputs:
+  LambdaFunctionArn:
+    Description: Lambda Function ARN
+    Value: !GetAtt ApiLambdaFunction.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-lambda-arn'
+
+  LambdaFunctionName:
+    Description: Lambda Function Name
+    Value: !Ref ApiLambdaFunction
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-lambda-name'
+
+  LambdaSecurityGroupId:
+    Description: Lambda Security Group ID
+    Value: !Ref LambdaSecurityGroup
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-lambda-sg-id'
+
+  HttpApiId:
+    Description: HTTP API ID
+    Value: !Ref HttpApi
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-api-id'
+
+  HttpApiEndpoint:
+    Description: HTTP API Endpoint
+    Value: !GetAtt HttpApi.ApiEndpoint
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-api-endpoint'
+
+  HttpApiStageUrl:
+    Description: HTTP API Stage URL
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-api-url'
