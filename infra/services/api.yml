@@ -245,6 +245,18 @@ Resources:
         Name: !Sub '${ProjectName}-${Environment}-api'
         Environment: !Ref Environment
 
+  # API Gateway Log Group
+  ApiGatewayLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/apigateway/${ProjectName}-${Environment}-api'
+      RetentionInDays: !If [IsProduction, 30, 7]
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-api-gateway-logs'
+        - Key: Environment
+          Value: !Ref Environment
+
   # API Gateway Stage
   HttpApiStage:
     Type: AWS::ApiGatewayV2::Stage
