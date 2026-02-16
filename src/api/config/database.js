@@ -1,8 +1,8 @@
 // Database configuration module
-const AWS = require('aws-sdk');
+const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
 
 // Initialize Secrets Manager client
-const secretsManager = new AWS.SecretsManager({
+const client = new SecretsManagerClient({
   region: process.env.AWS_REGION || 'us-east-2',
 });
 
@@ -28,9 +28,8 @@ async function getDbCredentials() {
   try {
     console.log('Retrieving database credentials from Secrets Manager');
 
-    const response = await secretsManager
-      .getSecretValue({ SecretId: secretArn })
-      .promise();
+    const command = new GetSecretValueCommand({ SecretId: secretArn });
+    const response = await client.send(command);
 
     if (!response.SecretString) {
       throw new Error('Secret string is empty');
