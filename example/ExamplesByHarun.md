@@ -151,6 +151,215 @@ aws secretsmanager get-secret-value \
 
 ---
 
+## Stack 3: API Services Infrastructure (Deploy Third)
+
+The API stack creates Lambda functions, API Gateway, and custom domain configuration.
+
+**IMPORTANT**: Both network and database stacks must be deployed and complete before deploying this stack.
+
+**Domain Names by Environment:**
+- **dev**: api-dev.pbxscribe.com
+- **staging**: api-staging.pbxscribe.com
+- **prod**: api.pbxscribe.com
+
+### Prerequisites for API Stack
+
+#### 1. Create ACM Certificate for Environment Domain
+
+For dev environment, request certificate for api-dev.pbxscribe.com:
+
+```bash
+# Request ACM certificate for the custom domain (dev example)
+aws acm request-certificate \
+  --domain-name api-dev.pbxscribe.com \
+  --validation-method DNS \
+  --region us-east-2 \
+  --profile dts \
+  --tags Key=Name,Value=api-dev.pbxscribe.com Key=Environment,Value=dev
+
+# Get the certificate ARN (save this for deployment)
+aws acm list-certificates \
+  --region us-east-2 \
+  --profile dts \
+  --query 'CertificateSummaryList[?DomainName==`api-dev.pbxscribe.com`]'
+```
+
+For prod environment, use `api.pbxscribe.com` instead.
+
+**IMPORTANT**: You must validate the certificate by adding the DNS records to Route53. Get validation records:
+
+```bash
+# Get certificate validation records
+CERT_ARN=<your-certificate-arn>
+
+aws acm describe-certificate \
+  --certificate-arn $CERT_ARN \
+  --region us-east-2 \
+  --profile dts \
+  --query 'Certificate.DomainValidationOptions[0].ResourceRecord'
+```
+
+Add the CNAME record to your Route53 hosted zone for pbxscribe.com to validate the certificate.
+
+#### 2. Verify Route53 Hosted Zone
+
+```bash
+# Check if hosted zone exists for pbxscribe.com
+aws route53 list-hosted-zones \
+  --profile dts \
+  --query 'HostedZones[?Name==`pbxscribe.com.`]'
+```
+
+If no hosted zone exists, create one:
+
+```bash
+aws route53 create-hosted-zone \
+  --name pbxscribe.com \
+  --caller-reference $(date +%s) \
+  --profile dts
+```
+
+### Deploy API Stack
+
+Once the ACM certificate is validated and you have the Route53 hosted zone:
+
+```bash
+# Set your ACM certificate ARN (for dev environment, use api-dev.pbxscribe.com certificate)
+CERT_ARN="arn:aws:acm:us-east-2:YOUR-ACCOUNT-ID:certificate/YOUR-CERT-ID"
+
+aws cloudformation create-stack \
+  --stack-name pbxscribe-api-backend-dev-api \
+  --template-body file://infra/services/api.yml \
+  --parameters \
+    ParameterKey=Environment,ParameterValue=dev \
+    ParameterKey=ProjectName,ParameterValue=pbxscribe-api-backend \
+    ParameterKey=HostedZoneName,ParameterValue=pbxscribe.com \
+    ParameterKey=LambdaRuntime,ParameterValue=nodejs20.x \
+    ParameterKey=LambdaMemorySize,ParameterValue=512 \
+    ParameterKey=LambdaTimeout,ParameterValue=30 \
+    ParameterKey=ACMCertificateArn,ParameterValue=$CERT_ARN \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region us-east-2 \
+  --tags \
+    Key=Environment,Value=dev \
+    Key=Project,Value=pbxscribe-api-backend \
+  --profile dts
+```
+
+**Note**: The domain name is automatically constructed based on the environment:
+- dev → api-dev.pbxscribe.com
+- staging → api-staging.pbxscribe.com
+- prod → api.pbxscribe.com
+
+### Monitor API Stack Deployment
+
+```bash
+# Watch the stack creation progress
+aws cloudformation describe-stacks \
+  --stack-name pbxscribe-api-backend-dev-api \
+  --region us-east-2 \
+  --query 'Stacks[0].StackStatus' \
+  --profile dts
+
+# Or watch events in real-time
+aws cloudformation describe-stack-events \
+  --stack-name pbxscribe-api-backend-dev-api \
+  --region us-east-2 \
+  --max-items 10 \
+  --profile dts
+```
+
+### Verify API Stack Outputs
+
+```bash
+# View all stack outputs
+aws cloudformation describe-stacks \
+  --stack-name pbxscribe-api-backend-dev-api \
+  --region us-east-2 \
+  --query 'Stacks[0].Outputs' \
+  --profile dts
+```
+
+### Test API Endpoints
+
+```bash
+# Get the custom domain URL (should be https://api-dev.pbxscribe.com for dev)
+CUSTOM_DOMAIN_URL=$(aws cloudformation describe-stacks \
+  --stack-name pbxscribe-api-backend-dev-api \
+  --region us-east-2 \
+  --profile dts \
+  --query 'Stacks[0].Outputs[?OutputKey==`CustomDomainUrl`].OutputValue' \
+  --output text)
+
+# Test the API
+curl $CUSTOM_DOMAIN_URL
+
+# Or test directly with domain name
+curl https://api-dev.pbxscribe.com
+
+# Or use the API Gateway endpoint directly
+API_URL=$(aws cloudformation describe-stacks \
+  --stack-name pbxscribe-api-backend-dev-api \
+  --region us-east-2 \
+  --profile dts \
+  --query 'Stacks[0].Outputs[?OutputKey==`HttpApiStageUrl`].OutputValue' \
+  --output text)
+
+curl $API_URL
+```
+
+### Update Lambda Function Code
+
+The template deploys a placeholder Lambda function. To deploy your actual Fastify application:
+
+```bash
+# Package your Lambda function
+cd your-api-code-directory
+zip -r function.zip .
+
+# Update Lambda function code
+aws lambda update-function-code \
+  --function-name pbxscribe-api-backend-dev-api \
+  --zip-file fileb://function.zip \
+  --region us-east-2 \
+  --profile dts
+
+# Wait for update to complete
+aws lambda wait function-updated \
+  --function-name pbxscribe-api-backend-dev-api \
+  --region us-east-2 \
+  --profile dts
+```
+
+### Update Lambda Environment Variables (if needed)
+
+```bash
+# Update environment variables
+aws lambda update-function-configuration \
+  --function-name pbxscribe-api-backend-dev-api \
+  --environment Variables="{NODE_ENV=dev,CUSTOM_VAR=value}" \
+  --region us-east-2 \
+  --profile dts
+```
+
+### View Lambda Logs
+
+```bash
+# Tail Lambda logs in real-time
+aws logs tail /aws/lambda/pbxscribe-api-backend-dev-api \
+  --follow \
+  --region us-east-2 \
+  --profile dts
+
+# View recent logs
+aws logs tail /aws/lambda/pbxscribe-api-backend-dev-api \
+  --since 1h \
+  --region us-east-2 \
+  --profile dts
+```
+
+---
+
 ## Verify Database Infrastructure
 
 After deployment, verify that the database is working properly and properly secured.
@@ -424,9 +633,25 @@ aws cloudformation update-stack \
 
 ## Delete Stacks (Cleanup)
 
-To delete the stacks (in reverse order):
+To delete the stacks (in reverse order - API, then Database, then Network):
 
-### Step 1: Disable RDS Deletion Protection
+### Step 1: Delete API Stack
+
+```bash
+# Delete API stack first
+aws cloudformation delete-stack \
+  --stack-name pbxscribe-api-backend-dev-api \
+  --region us-east-2 \
+  --profile dts
+
+# Wait for API stack to be deleted
+aws cloudformation wait stack-delete-complete \
+  --stack-name pbxscribe-api-backend-dev-api \
+  --region us-east-2 \
+  --profile dts
+```
+
+### Step 2: Disable RDS Deletion Protection
 
 The database has deletion protection enabled for safety. You must disable it first:
 
@@ -470,10 +695,10 @@ aws cloudformation wait stack-delete-complete \
   --profile dts
 ```
 
-### Step 3: Delete Network Stack
+### Step 4: Delete Network Stack
 
 ```bash
-# Then delete network stack
+# Finally, delete network stack
 aws cloudformation delete-stack \
   --stack-name pbxscribe-api-backend-dev-network \
   --region us-east-2 \

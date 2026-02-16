@@ -1,0 +1,97 @@
+# =============================================================================
+# API Services Infrastructure - Lambda, API Gateway
+# =============================================================================
+# DEFAULT REGION: us-east-2 (Ohio)
+#
+# DEPENDENCIES:
+# - This stack REQUIRES infra/foundation/network.yml to be deployed first
+# - This stack REQUIRES infra/foundation/database.yml to be deployed first
+# - ProjectName and Environment parameters MUST match the foundation stacks
+# - CloudFormation will fail if network/database stack exports are not available
+#
+# ARCHITECTURE:
+# - Lambda function in VPC (to access RDS database)
+# - API Gateway HTTP API (cheaper and simpler than REST API)
+# - Connects to RDS via RDS Proxy (from database stack)
+# - Lambda uses Node.js runtime with Fastify framework
+#
+# NOTE: Custom domain configuration will be added later after pbxscribe.com
+#       is migrated to Route53
+# =============================================================================
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'API Services Infrastructure - Lambda, API Gateway'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+    Description: Environment name (must match the foundation stacks)
+
+  ProjectName:
+    Type: String
+    Default: pbxscribe-api-backend
+    Description: Project name used for resource naming (must match the foundation stacks)
+    AllowedPattern: '^[a-z0-9-]+$'
+    ConstraintDescription: Must contain only lowercase letters, numbers, and hyphens
+    MinLength: 3
+    MaxLength: 63
+
+  LambdaRuntime:
+    Type: String
+    Default: nodejs20.x
+    AllowedValues:
+      - nodejs18.x
+      - nodejs20.x
+      - nodejs22.x
+    Description: Node.js runtime version for Lambda
+
+  LambdaMemorySize:
+    Type: Number
+    Default: 512
+    MinValue: 128
+    MaxValue: 10240
+    Description: Lambda function memory size in MB (128 MB to 10,240 MB)
+
+  LambdaTimeout:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 900
+    Description: Lambda function timeout in seconds (1 to 900 seconds)
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, 'prod']
+
+Resources:
+  # =============================================================================
+  # Lambda Security Group
+  # =============================================================================
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ProjectName}-${Environment}-lambda-sg'
+      GroupDescription: !Sub 'Security group for ${ProjectName} ${Environment} Lambda functions'
+      VpcId:
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-vpc-id'
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          DestinationSecurityGroupId:
+            Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-sg-id'
+          Description: 'Allow PostgreSQL access to RDS database'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: 'Allow HTTPS outbound for AWS services (Secrets Manager, etc.)'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-lambda-sg'
+        - Key: Environment
+          Value: !Ref Environment
