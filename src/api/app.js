@@ -1,6 +1,7 @@
 // Fastify application initialization
 const fastify = require('fastify');
 const healthRoutes = require('./routes/health');
+const migrateRoutes = require('./routes/migrate');
 
 /**
  * Initialize and configure Fastify application
@@ -42,6 +43,7 @@ async function init() {
   // Register plugins and routes with environment prefix
   await app.register(async function (fastify) {
     await fastify.register(healthRoutes);
+    await fastify.register(migrateRoutes);
 
     // Root route
     fastify.get('/', async (request, reply) => {
