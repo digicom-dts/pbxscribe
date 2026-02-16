@@ -244,3 +244,21 @@ Resources:
       Tags:
         Name: !Sub '${ProjectName}-${Environment}-api'
         Environment: !Ref Environment
+
+  # API Gateway Stage
+  HttpApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: !Ref Environment
+      Description: !Sub '${Environment} stage'
+      AutoDeploy: true
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiGatewayLogGroup.Arn
+        Format: '$context.requestId $context.error.message $context.error.messageString'
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 5000
+        ThrottlingRateLimit: 2000
+      Tags:
+        Name: !Sub '${ProjectName}-${Environment}-api-stage'
+        Environment: !Ref Environment
