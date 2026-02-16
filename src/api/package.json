@@ -1,0 +1,26 @@
+{
+  "name": "pbxscribe-api",
+  "version": "1.0.0",
+  "description": "PBXScribe API with Fastify on AWS Lambda",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test-local.js"
+  },
+  "keywords": [
+    "fastify",
+    "lambda",
+    "api",
+    "pbxscribe"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@fastify/aws-lambda": "^4.1.0",
+    "fastify": "^4.28.1",
+    "pg": "^8.12.0",
+    "aws-sdk": "^2.1691.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
