@@ -218,3 +218,29 @@ Resources:
           Value: !Sub '${ProjectName}-${Environment}-api-logs'
         - Key: Environment
           Value: !Ref Environment
+
+  # =============================================================================
+  # API Gateway HTTP API
+  # =============================================================================
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-api'
+      Description: !Sub 'HTTP API for ${ProjectName} ${Environment}'
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - '*'
+        MaxAge: 300
+      Tags:
+        Name: !Sub '${ProjectName}-${Environment}-api'
+        Environment: !Ref Environment
