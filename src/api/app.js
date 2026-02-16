@@ -35,32 +35,16 @@ async function init() {
   });
 
   // Determine base path from environment (API Gateway stage)
-  // In dev: /dev, in prod: /prod, etc.
-  const basePath = process.env.NODE_ENV && process.env.NODE_ENV !== 'production'
-    ? `/${process.env.NODE_ENV}`
-    : '';
+  // Environments: dev, staging, prod
+  // API Gateway stage URL format: /{environment}
+  const basePath = process.env.NODE_ENV ? `/${process.env.NODE_ENV}` : '';
 
-  // Register plugins and routes
-  // If there's a base path, register as a plugin with prefix
-  if (basePath) {
-    await app.register(async function (fastify) {
-      await fastify.register(healthRoutes);
+  // Register plugins and routes with environment prefix
+  await app.register(async function (fastify) {
+    await fastify.register(healthRoutes);
 
-      // Root route
-      fastify.get('/', async (request, reply) => {
-        return {
-          service: 'PBXScribe API',
-          version: '1.0.0',
-          environment: process.env.NODE_ENV || 'development',
-          timestamp: new Date().toISOString(),
-        };
-      });
-    }, { prefix: basePath });
-  } else {
-    // Production - no prefix
-    await app.register(healthRoutes);
-
-    app.get('/', async (request, reply) => {
+    // Root route
+    fastify.get('/', async (request, reply) => {
       return {
         service: 'PBXScribe API',
         version: '1.0.0',
@@ -68,7 +52,7 @@ async function init() {
         timestamp: new Date().toISOString(),
       };
     });
-  }
+  }, { prefix: basePath });
 
   // Error handler
   app.setErrorHandler((error, request, reply) => {
