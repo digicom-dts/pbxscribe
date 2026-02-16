@@ -6,10 +6,10 @@ let proxy;
 
 /**
  * Lambda handler function
- * Initializes Fastify app on first invocation and reuses it for subsequent calls
+ * Initializes Fastify app on the first invocation and reuses it for subsequent calls
  */
 exports.handler = async (event, context) => {
-  // Initialize proxy on first invocation (cold start)
+  // Initialize proxy on the first invocation (cold start)
   if (!proxy) {
     console.log('Cold start - initializing Fastify app');
     const app = await init();
