@@ -4,7 +4,7 @@
   "description": "PBXScribe API with Fastify on AWS Lambda",
   "main": "index.js",
   "scripts": {
-    "test": "node test-local.js"
+    "test": "node tests/lambda/test-local.js"
   },
   "keywords": [
     "fastify",
@@ -15,8 +15,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@fastify/aws-lambda": "^4.1.0",
-    "fastify": "^4.28.1",
+    "@fastify/aws-lambda": "^6.4.0",
+    "fastify": "^5.7.0",
     "pg": "^8.12.0",
     "aws-sdk": "^2.1691.0"
   },
