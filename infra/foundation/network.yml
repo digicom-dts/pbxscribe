@@ -1,6 +1,8 @@
 # =============================================================================
 # Foundation Network Infrastructure - VPC, Subnets, Route Tables, Security Groups
 # =============================================================================
+# DEFAULT REGION: us-east-2 (Ohio)
+#
 # This file is REQUIRED for all other infrastructure files.
 # Deploy this stack first before any other stacks.
 #
@@ -341,6 +343,12 @@ Outputs:
     Value: !Ref VPC
     Export:
       Name: !Sub '${ProjectName}-${Environment}-vpc-id'
+
+  VpcCIDR:
+    Description: VPC CIDR Block
+    Value: !Ref VpcCIDR
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-vpc-cidr'
 
   InternetGatewayId:
     Description: Internet Gateway ID
