@@ -274,3 +274,13 @@ Resources:
       Tags:
         Name: !Sub '${ProjectName}-${Environment}-api-stage'
         Environment: !Ref Environment
+
+  # Lambda Integration
+  LambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ApiLambdaFunction.Arn
+      PayloadFormatVersion: '2.0'
+      TimeoutInMillis: 30000
