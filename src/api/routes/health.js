@@ -1,5 +1,4 @@
 // Health check routes
-const { Client } = require('pg');
 const { getDatabaseConfig } = require('../config/database');
 
 /**
@@ -19,26 +18,13 @@ async function healthRoutes(fastify) {
   });
 
   // Database health check
-  // TODO: Add authentication/authorization middleware to protect this endpoint
-  // This endpoint exposes database connection details and should be restricted
   fastify.get('/health/db', async (request, reply) => {
-    const client = new Client();
-
     try {
-      // Get database configuration
+      const result = await fastify.pg.query(
+        'SELECT version(), current_database(), NOW() as current_time'
+      );
+
       const dbConfig = await getDatabaseConfig();
-
-      // Create client with config
-      const client = new Client(dbConfig);
-
-      // Connect to database
-      await client.connect();
-
-      // Run a simple query to verify connection
-      const result = await client.query('SELECT version(), current_database(), NOW() as current_time');
-
-      // Close connection
-      await client.end();
 
       return {
         status: 'ok',
@@ -53,13 +39,6 @@ async function healthRoutes(fastify) {
         },
       };
     } catch (error) {
-      // Make sure to close connection on error
-      try {
-        await client.end();
-      } catch (endError) {
-        // Ignore errors when closing
-      }
-
       request.log.error('Database health check failed:', error);
 
       reply.status(503).send({
@@ -74,20 +53,10 @@ async function healthRoutes(fastify) {
     }
   });
 
-  // Readiness check (for Kubernetes/container orchestration)
+  // Readiness check
   fastify.get('/ready', async (request, reply) => {
     try {
-      // Get database configuration
-      const dbConfig = await getDatabaseConfig();
-
-      // Create client with config
-      const client = new Client(dbConfig);
-
-      // Quick connection test
-      await client.connect();
-      await client.query('SELECT 1');
-      await client.end();
-
+      await fastify.pg.query('SELECT 1');
       return {
         status: 'ready',
         timestamp: new Date().toISOString(),
