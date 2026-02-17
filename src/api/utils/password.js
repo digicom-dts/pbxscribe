@@ -9,7 +9,7 @@ const COST_FACTOR = 12;
  * @returns {Promise<string>} bcrypt hash
  */
 async function hashPassword(plaintext) {
-  return bcrypt.hash(plaintext, COST_FACTOR);
+    return bcrypt.hash(plaintext, COST_FACTOR);
 }
 
 /**
@@ -19,10 +19,10 @@ async function hashPassword(plaintext) {
  * @returns {Promise<boolean>}
  */
 async function verifyPassword(plaintext, hash) {
-  return bcrypt.compare(plaintext, hash);
+    return bcrypt.compare(plaintext, hash);
 }
 
 module.exports = {
-  hashPassword,
-  verifyPassword,
+    hashPassword,
+    verifyPassword,
 };

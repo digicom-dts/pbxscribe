@@ -9,8 +9,8 @@ const PREFIX = 'pbx_';
  * @returns {string}
  */
 function generateApiKey() {
-  const random = crypto.randomBytes(48).toString('base64url');
-  return `${PREFIX}${random}`;
+    const random = crypto.randomBytes(48).toString('base64url');
+    return `${PREFIX}${random}`;
 }
 
 /**
@@ -21,10 +21,10 @@ function generateApiKey() {
  * @returns {string} Hex-encoded SHA-256 hash
  */
 function hashApiKey(key) {
-  return crypto.createHash('sha256').update(key).digest('hex');
+    return crypto.createHash('sha256').update(key).digest('hex');
 }
 
 module.exports = {
-  generateApiKey,
-  hashApiKey,
+    generateApiKey,
+    hashApiKey,
 };
