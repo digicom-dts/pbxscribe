@@ -1,6 +1,7 @@
 // Fastify application initialization
 const fastify = require('fastify');
 const databasePlugin = require('./plugins/database');
+const authPlugin = require('./plugins/auth');
 const healthRoutes = require('./routes/health');
 const migrateRoutes = require('./routes/migrate');
 const userRoutes = require('./routes/users');
@@ -43,8 +44,10 @@ async function init() {
   // API Gateway stage URL format: /{environment}
   const basePath = process.env.NODE_ENV ? `/${process.env.NODE_ENV}` : '';
 
-  // Register database pool plugin (available across all scopes via fastify-plugin)
+  // Register shared plugins (break encapsulation via fastify-plugin so decorators
+  // are available in all route scopes)
   await app.register(databasePlugin);
+  await app.register(authPlugin);
 
   // Register plugins and routes with environment prefix
   await app.register(async function (fastify) {

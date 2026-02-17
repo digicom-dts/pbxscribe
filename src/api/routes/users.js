@@ -26,6 +26,7 @@ const userSchema = {
 async function userRoutes(fastify) {
   // POST /users — create user
   fastify.post('/users', {
+    preHandler: [fastify.authenticate],
     schema: {
       body: {
         type: 'object',
@@ -61,6 +62,7 @@ async function userRoutes(fastify) {
 
   // GET /users — list users
   fastify.get('/users', {
+    preHandler: [fastify.authenticate],
     schema: {
       querystring: {
         type: 'object',
@@ -92,6 +94,7 @@ async function userRoutes(fastify) {
 
   // GET /users/:id — get user by ID
   fastify.get('/users/:id', {
+    preHandler: [fastify.authenticate],
     schema: {
       params: {
         type: 'object',
@@ -120,6 +123,7 @@ async function userRoutes(fastify) {
 
   // PUT /users/:id — update user
   fastify.put('/users/:id', {
+    preHandler: [fastify.authenticate],
     schema: {
       params: {
         type: 'object',
@@ -157,6 +161,7 @@ async function userRoutes(fastify) {
 
   // DELETE /users/:id — delete user
   fastify.delete('/users/:id', {
+    preHandler: [fastify.authenticate],
     schema: {
       params: {
         type: 'object',

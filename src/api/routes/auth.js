@@ -1,69 +1,14 @@
 // Auth routes
-const { createUser, findUserByEmail, findUserById } = require('../repositories/userRepository');
+const { createUser, findUserByEmail } = require('../repositories/userRepository');
 const {
   createCredential,
   findCredentialsByUserId,
-  findActiveCredentialByHash,
   deactivateCredential,
   updateLastUsed,
 } = require('../repositories/credentialRepository');
 const { hashPassword, verifyPassword } = require('../utils/password');
 const { generateApiKey, hashApiKey } = require('../utils/apiKey');
-const { generateToken, verifyToken } = require('../utils/jwt');
-
-/**
- * Resolve the authenticated user from an Authorization header value.
- * Supports:
- *   Bearer <jwt>
- *   ApiKey <plaintext-key>
- *
- * Returns { user, credentialId } or throws with a status-ready error.
- */
-async function resolveAuth(pool, authHeader) {
-  if (!authHeader) {
-    const err = new Error('Authorization header required');
-    err.statusCode = 401;
-    throw err;
-  }
-
-  const [scheme, value] = authHeader.split(' ');
-
-  if (scheme === 'Bearer') {
-    let decoded;
-    try {
-      decoded = verifyToken(value);
-    } catch {
-      const err = new Error('Invalid or expired token');
-      err.statusCode = 401;
-      throw err;
-    }
-
-    const user = await findUserById(pool, decoded.sub);
-    if (!user || user.status !== 'active') {
-      const err = new Error('User not found or inactive');
-      err.statusCode = 401;
-      throw err;
-    }
-    return { user, credentialId: null };
-  }
-
-  if (scheme === 'ApiKey') {
-    const hash = hashApiKey(value);
-    const result = await findActiveCredentialByHash(pool, hash, 'api_key');
-    if (!result) {
-      const err = new Error('Invalid or revoked API key');
-      err.statusCode = 401;
-      throw err;
-    }
-    // Fire-and-forget last used update
-    updateLastUsed(pool, result.credential.id).catch(() => {});
-    return { user: result.user, credentialId: result.credential.id };
-  }
-
-  const err = new Error('Unsupported auth scheme. Use Bearer or ApiKey');
-  err.statusCode = 401;
-  throw err;
-}
+const { generateToken } = require('../utils/jwt');
 
 /**
  * Register auth routes
@@ -146,7 +91,6 @@ async function authRoutes(fastify) {
 
     let matchedCredential = null;
     for (const cred of active) {
-      // We need the hash — fetch it directly
       const row = await fastify.pg.query(
         'SELECT credential_hash FROM user_credentials WHERE id = $1',
         [cred.id]
@@ -161,28 +105,22 @@ async function authRoutes(fastify) {
       return reply.status(401).send(genericError);
     }
 
-    // Fire-and-forget last used update
     updateLastUsed(fastify.pg, matchedCredential.id).catch(() => {});
 
     const token = generateToken({ sub: user.id, email: user.email, name: user.name });
     return { token, user };
   });
 
-  // GET /auth/me
-  fastify.get('/auth/me', async (request, reply) => {
-    let resolved;
-    try {
-      resolved = await resolveAuth(fastify.pg, request.headers.authorization);
-    } catch (err) {
-      return reply.status(err.statusCode || 401).send({
-        error: { message: err.message, statusCode: err.statusCode || 401 },
-      });
-    }
-    return resolved.user;
+  // GET /auth/me — protected
+  fastify.get('/auth/me', {
+    preHandler: [fastify.authenticate],
+  }, async (request, reply) => {
+    return request.user;
   });
 
-  // POST /auth/api-keys — create a new API key for the authenticated user
+  // POST /auth/api-keys — protected
   fastify.post('/auth/api-keys', {
+    preHandler: [fastify.authenticate],
     schema: {
       body: {
         type: 'object',
@@ -194,15 +132,6 @@ async function authRoutes(fastify) {
       },
     },
   }, async (request, reply) => {
-    let resolved;
-    try {
-      resolved = await resolveAuth(fastify.pg, request.headers.authorization);
-    } catch (err) {
-      return reply.status(err.statusCode || 401).send({
-        error: { message: err.message, statusCode: err.statusCode || 401 },
-      });
-    }
-
     const { label, expires_in_days } = request.body || {};
 
     let expiresAt = null;
@@ -215,7 +144,7 @@ async function authRoutes(fastify) {
     const hash = hashApiKey(plainKey);
 
     const credential = await createCredential(fastify.pg, {
-      userId: resolved.user.id,
+      userId: request.user.id,
       credentialType: 'api_key',
       credentialHash: hash,
       label: label || null,
@@ -231,8 +160,9 @@ async function authRoutes(fastify) {
     });
   });
 
-  // DELETE /auth/api-keys/:id — revoke an API key
+  // DELETE /auth/api-keys/:id — protected
   fastify.delete('/auth/api-keys/:id', {
+    preHandler: [fastify.authenticate],
     schema: {
       params: {
         type: 'object',
@@ -242,19 +172,10 @@ async function authRoutes(fastify) {
       },
     },
   }, async (request, reply) => {
-    let resolved;
-    try {
-      resolved = await resolveAuth(fastify.pg, request.headers.authorization);
-    } catch (err) {
-      return reply.status(err.statusCode || 401).send({
-        error: { message: err.message, statusCode: err.statusCode || 401 },
-      });
-    }
-
     const { id } = request.params;
 
     // Verify ownership before deactivating
-    const credentials = await findCredentialsByUserId(fastify.pg, resolved.user.id, 'api_key');
+    const credentials = await findCredentialsByUserId(fastify.pg, request.user.id, 'api_key');
     const owned = credentials.find(c => c.id === id);
 
     if (!owned) {
