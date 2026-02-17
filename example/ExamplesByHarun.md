@@ -324,11 +324,17 @@ aws route53 create-hosted-zone \
 
 ### Deploy API Stack
 
+> **Recommended**: Use `deploy.sh` instead of running these commands manually — see [Quick Deploy with deploy.sh](#quick-deploy-with-deploysh) below.
+
 Once the ACM certificate is validated and you have the Route53 hosted zone:
 
 ```bash
 # Set your ACM certificate ARN (for dev environment, use api-dev.pbxscribe.com certificate)
 CERT_ARN="arn:aws:acm:us-east-2:YOUR-ACCOUNT-ID:certificate/YOUR-CERT-ID"
+
+# Generate secrets before deploying (or load from .env)
+JWT_SECRET=$(openssl rand -base64 48)
+MIGRATION_SECRET=$(openssl rand -base64 24)
 
 aws cloudformation create-stack \
   --stack-name pbxscribe-api-backend-dev-api \
@@ -336,11 +342,11 @@ aws cloudformation create-stack \
   --parameters \
     ParameterKey=Environment,ParameterValue=dev \
     ParameterKey=ProjectName,ParameterValue=pbxscribe-api-backend \
-    ParameterKey=HostedZoneName,ParameterValue=pbxscribe.com \
     ParameterKey=LambdaRuntime,ParameterValue=nodejs20.x \
     ParameterKey=LambdaMemorySize,ParameterValue=512 \
     ParameterKey=LambdaTimeout,ParameterValue=30 \
-    ParameterKey=ACMCertificateArn,ParameterValue=$CERT_ARN \
+    ParameterKey=JwtSecret,ParameterValue=$JWT_SECRET \
+    ParameterKey=MigrationSecret,ParameterValue=$MIGRATION_SECRET \
   --capabilities CAPABILITY_NAMED_IAM \
   --region us-east-2 \
   --tags \
@@ -432,6 +438,72 @@ curl -i $API_URL/health/db
 - **GET /live**: `200 OK` with `{"status":"alive"}`
 - **GET /health/db**: `200 OK` with database status (or `503` if database connection fails)
 
+#### Run Migrations
+
+```bash
+# Get MIGRATION_SECRET from SSM
+MIGRATION_SECRET=$(aws ssm get-parameter \
+  --name /pbxscribe-api-backend/dev/migration-secret \
+  --region us-east-2 \
+  --profile dts \
+  --query 'Parameter.Value' \
+  --output text)
+
+# Run pending migrations
+curl -s -X POST $API_URL/migrate \
+  -H "x-migration-secret: $MIGRATION_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{}' | jq '.'
+```
+
+**Expected Output** (first run):
+```json
+{ "applied": ["001_create_users_table.sql", "002_create_user_credentials_table.sql"], "message": "Successfully applied 2 migration(s)" }
+```
+
+**Expected Output** (subsequent runs — idempotent):
+```json
+{ "applied": [], "message": "No pending migrations" }
+```
+
+#### Test Auth Endpoints
+
+```bash
+# Register a new user (no password — API-key-only account)
+curl -s -X POST $API_URL/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","name":"Test User"}' | jq '.'
+
+# Register a user with a password (returns JWT immediately)
+curl -s -X POST $API_URL/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","name":"Admin","password":"securepassword123"}' | jq '.'
+
+# Login
+TOKEN=$(curl -s -X POST $API_URL/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"securepassword123"}' \
+  | jq -r '.token')
+
+echo "Token: $TOKEN"
+
+# Get current user profile (Bearer JWT)
+curl -s $API_URL/auth/me \
+  -H "Authorization: Bearer $TOKEN" | jq '.'
+
+# Create an API key
+API_KEY=$(curl -s -X POST $API_URL/auth/api-keys \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"label":"my-key","expires_in_days":30}' | jq -r '.key')
+
+echo "API Key: $API_KEY"
+
+# Use API key to authenticate
+curl -s $API_URL/auth/me \
+  -H "Authorization: ApiKey $API_KEY" | jq '.'
+```
+
 #### Test with JSON Output
 
 ```bash
@@ -488,9 +560,54 @@ aws lambda invoke \
 cat /tmp/response.json | jq '.'
 ```
 
-### Deploy Lambda Function Code
+### Quick Deploy with deploy.sh
 
-The template deploys a placeholder Lambda function. To deploy your actual Fastify application from `src/api`:
+The `deploy.sh` script handles the full deployment in one command — CloudFormation stack update, Lambda code packaging, and optional migrations.
+
+#### First-time setup
+
+```bash
+# Copy the example env file and fill in your secrets
+cp .env.example .env
+
+# Generate secrets (paste into .env)
+echo "JWT_SECRET=$(openssl rand -base64 48)"
+echo "MIGRATION_SECRET=$(openssl rand -base64 24)"
+```
+
+Your `.env` should look like:
+```
+ENVIRONMENT=dev
+AWS_REGION=us-east-2
+AWS_PROFILE=dts
+JWT_SECRET=<generated above>
+MIGRATION_SECRET=<generated above>
+```
+
+#### Deploy
+
+```bash
+# Full deploy: update infra + upload Lambda code
+./deploy.sh
+
+# Full deploy + run migrations in one shot
+./deploy.sh --migrate
+
+# Deploy to a different environment (overrides ENVIRONMENT in .env)
+./deploy.sh prod
+
+# Update infra only (e.g. rotating secrets)
+./deploy.sh --infra-only
+
+# Upload Lambda code only (no infra changes)
+./deploy.sh --code-only
+```
+
+---
+
+### Deploy Lambda Function Code (Manual)
+
+The template deploys a placeholder Lambda function. To deploy your actual Fastify application from `src/api` manually:
 
 ```bash
 # Navigate to the project root directory
@@ -664,6 +781,15 @@ After deployment and testing, verify:
 - [ ] API Gateway logs show incoming requests
 - [ ] Database credentials are retrieved from Secrets Manager
 - [ ] Lambda can connect to RDS via RDS Proxy
+- [ ] `JWT_SECRET` and `MIGRATION_SECRET` present in Lambda env vars
+- [ ] SSM parameters `/pbxscribe-api-backend/dev/jwt-secret` and `.../migration-secret` created
+- [ ] POST /migrate returns `{ applied: [...] }` with correct secret
+- [ ] POST /migrate returns 401 with wrong secret
+- [ ] POST /auth/register creates user and returns JWT
+- [ ] POST /auth/login returns token on valid credentials, 401 on invalid
+- [ ] GET /auth/me returns user profile with valid Bearer token
+- [ ] GET /auth/me returns user profile with valid ApiKey
+- [ ] GET /users returns 401 without Authorization header
 
 ### Troubleshooting API Stack
 
@@ -1334,62 +1460,38 @@ cd ../..
 echo "✅ Lambda function tested locally"
 ```
 
-### Step 4: Deploy API Stack
+### Step 4: Configure .env
 
 ```bash
-# Deploy API stack
-echo "Deploying API stack..."
-aws cloudformation create-stack \
-  --stack-name pbxscribe-api-backend-dev-api \
-  --template-body file://infra/services/api.yml \
-  --parameters \
-    ParameterKey=Environment,ParameterValue=dev \
-    ParameterKey=ProjectName,ParameterValue=pbxscribe-api-backend \
-    ParameterKey=LambdaRuntime,ParameterValue=nodejs20.x \
-    ParameterKey=LambdaMemorySize,ParameterValue=512 \
-    ParameterKey=LambdaTimeout,ParameterValue=30 \
-  --capabilities CAPABILITY_NAMED_IAM \
-  --region us-east-2 \
-  --tags Key=Environment,Value=dev Key=Project,Value=pbxscribe-api-backend \
-  --profile dts
+# Copy and fill in the env file (first time only)
+cp .env.example .env
 
-# Wait for API stack
-echo "Waiting for API stack to complete..."
-aws cloudformation wait stack-create-complete \
-  --stack-name pbxscribe-api-backend-dev-api \
-  --region us-east-2 \
-  --profile dts
-
-echo "✅ API stack deployed"
+# Generate and set secrets
+echo "JWT_SECRET=$(openssl rand -base64 48)"
+echo "MIGRATION_SECRET=$(openssl rand -base64 24)"
+# Paste the output values into .env
 ```
 
-### Step 5: Deploy Lambda Code
+### Step 5: Deploy API Stack + Lambda Code
 
 ```bash
-# Package Lambda function
-echo "Packaging Lambda function..."
-cd src/api
-zip -r ../../function.zip . -x "*.git*" -x "tests/*" -x "node_modules/aws-sdk/*"
-cd ../..
+# deploy.sh handles both the CloudFormation stack and Lambda code upload
+echo "Deploying API stack and Lambda code..."
+./deploy.sh dev
 
-# Update Lambda function code
-echo "Deploying Lambda code..."
-aws lambda update-function-code \
-  --function-name pbxscribe-api-backend-dev-api \
-  --zip-file fileb://function.zip \
-  --region us-east-2 \
-  --profile dts
-
-# Wait for update to complete
-aws lambda wait function-updated \
-  --function-name pbxscribe-api-backend-dev-api \
-  --region us-east-2 \
-  --profile dts
-
-echo "✅ Lambda code deployed"
+echo "✅ API stack and Lambda deployed"
 ```
 
-### Step 6: Test API
+### Step 6: Run Migrations
+
+```bash
+echo "Running database migrations..."
+./deploy.sh dev --migrate
+
+echo "✅ Migrations complete"
+```
+
+### Step 8: Test API
 
 ```bash
 # Get API URL
@@ -1402,11 +1504,21 @@ API_URL=$(aws cloudformation describe-stacks \
 
 echo "API URL: $API_URL"
 
-# Test endpoints
-echo -e "\n✅ Testing API endpoints..."
+# Test health endpoints
+echo -e "\n✅ Testing health endpoints..."
 curl -s $API_URL/health | jq '.'
 curl -s $API_URL/ready | jq '.'
 curl -s $API_URL/live | jq '.'
+
+# Test auth flow
+echo -e "\n✅ Testing auth flow..."
+TOKEN=$(curl -s -X POST $API_URL/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","name":"Admin","password":"securepassword123"}' \
+  | jq -r '.token')
+
+curl -s $API_URL/auth/me \
+  -H "Authorization: Bearer $TOKEN" | jq '.'
 
 echo -e "\n✅ Deployment complete! API is accessible at: $API_URL"
 ```
