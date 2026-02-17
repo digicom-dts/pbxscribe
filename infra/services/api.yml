@@ -194,8 +194,8 @@ Resources:
           DB_SECRET_ARN:
             Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-secret-arn'
           AWS_NODEJS_CONNECTION_REUSE_ENABLED: '1'
-          JWT_SECRET: !Sub '{{resolve:ssm:/${ProjectName}/${Environment}/jwt-secret}}'
-          MIGRATION_SECRET: !Sub '{{resolve:ssm:/${ProjectName}/${Environment}/migration-secret}}'
+          JWT_SECRET: !GetAtt JwtSecretParameter.Value
+          MIGRATION_SECRET: !GetAtt MigrationSecretParameter.Value
       Code:
         ZipFile: |
           // Placeholder Lambda function
