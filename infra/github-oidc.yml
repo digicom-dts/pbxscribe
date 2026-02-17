@@ -1,0 +1,161 @@
+# =============================================================================
+# GitHub Actions OIDC Provider and Deploy Role
+#
+# PURPOSE:
+#   Allows GitHub Actions to authenticate to AWS without storing long-lived
+#   access keys. The deploy role is assumed via OIDC only from commits pushed
+#   to the configured branch of the configured repository.
+#
+# DEPLOY ONCE (per AWS account):
+#   aws cloudformation deploy \
+#     --template-file infra/github-oidc.yml \
+#     --stack-name pbxscribe-api-backend-prod-github-oidc \
+#     --capabilities CAPABILITY_NAMED_IAM \
+#     --parameter-overrides \
+#       ProjectName=pbxscribe-api-backend \
+#       Environment=prod \
+#       GitHubOrg=digicom-dts \
+#       GitHubRepo=pbxscribe \
+#       DeployBranch=main
+#
+# NOTE: If an OIDC provider for token.actions.githubusercontent.com already
+#   exists in this account (from another stack), set CreateOIDCProvider=false.
+#
+# AFTER DEPLOY:
+#   Copy the DeployRoleArn output value and store it as the
+#   AWS_DEPLOY_ROLE_ARN secret in your GitHub repository settings.
+# =============================================================================
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'GitHub Actions OIDC provider and deploy role for blue-green Lambda CI/CD'
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: pbxscribe-api-backend
+
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+
+  GitHubOrg:
+    Type: String
+    Default: digicom-dts
+    Description: GitHub organization or username
+
+  GitHubRepo:
+    Type: String
+    Default: pbxscribe
+    Description: GitHub repository name (without org prefix)
+
+  DeployBranch:
+    Type: String
+    Default: main
+    Description: Branch that is allowed to trigger deployments
+
+  CreateOIDCProvider:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Set to false if token.actions.githubusercontent.com OIDC provider already exists in this account
+
+Conditions:
+  ShouldCreateOIDCProvider: !Equals [!Ref CreateOIDCProvider, 'true']
+
+Resources:
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: ShouldCreateOIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        # GitHub's OIDC thumbprints (AWS validates via root CA, but value is required)
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+
+  GitHubDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-github-deploy'
+      Description: !Sub 'Assumed by GitHub Actions to deploy ${ProjectName} to ${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - ShouldCreateOIDCProvider
+                - !Ref GitHubOIDCProvider
+                - !Sub 'arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'token.actions.githubusercontent.com:aud': sts.amazonaws.com
+              StringLike:
+                # Only allow the specific repo + branch to assume this role
+                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${DeployBranch}'
+      MaxSessionDuration: 3600
+      Policies:
+        - PolicyName: LambdaBlueGreenDeployPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: LambdaCodeAndVersions
+                Effect: Allow
+                Action:
+                  - lambda:UpdateFunctionCode
+                  - lambda:GetFunction
+                  - lambda:PublishVersion
+                  - lambda:ListVersionsByFunction
+                  - lambda:GetAlias
+                  - lambda:CreateAlias
+                  - lambda:UpdateAlias
+                  - lambda:AddPermission
+                Resource:
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-${Environment}-api'
+                  - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${ProjectName}-${Environment}-api:*'
+
+              - Sid: CodeDeployDeployments
+                Effect: Allow
+                Action:
+                  - codedeploy:CreateDeployment
+                  - codedeploy:GetDeployment
+                  - codedeploy:GetDeploymentGroup
+                  - codedeploy:GetDeploymentConfig
+                  - codedeploy:RegisterApplicationRevision
+                  - codedeploy:GetApplicationRevision
+                Resource: '*'
+
+              - Sid: InfraLookup
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeStacks
+                  - apigatewayv2:GetIntegrations
+                  - apigatewayv2:UpdateIntegration
+                  - sts:GetCallerIdentity
+                Resource: '*'
+
+              - Sid: SecretsForMigration
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource:
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/${Environment}/*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-github-deploy'
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  DeployRoleArn:
+    Description: >
+      ARN of the GitHub Actions deploy role.
+      Store this value as the AWS_DEPLOY_ROLE_ARN secret in your GitHub
+      repository (Settings → Secrets and variables → Actions).
+    Value: !GetAtt GitHubDeployRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-github-deploy-role-arn'
