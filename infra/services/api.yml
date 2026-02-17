@@ -64,6 +64,18 @@ Parameters:
     MaxValue: 900
     Description: Lambda function timeout in seconds (1 to 900 seconds)
 
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: Secret key used to sign and verify JWT tokens (min 32 characters)
+
+  MigrationSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    Description: Secret used to protect the POST /migrate endpoint (min 16 characters)
+
 Conditions:
   IsProduction: !Equals [!Ref Environment, 'prod']
 
@@ -182,6 +194,8 @@ Resources:
           DB_SECRET_ARN:
             Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-secret-arn'
           AWS_NODEJS_CONNECTION_REUSE_ENABLED: '1'
+          JWT_SECRET: !Sub '{{resolve:ssm:/${ProjectName}/${Environment}/jwt-secret}}'
+          MIGRATION_SECRET: !Sub '{{resolve:ssm:/${ProjectName}/${Environment}/migration-secret}}'
       Code:
         ZipFile: |
           // Placeholder Lambda function
@@ -206,6 +220,36 @@ Resources:
           Value: !Sub '${ProjectName}-${Environment}-api'
         - Key: Environment
           Value: !Ref Environment
+
+  # =============================================================================
+  # SSM Parameter Store — Application Secrets
+  # NOTE: AWS::SSM::Parameter only supports Type: String (not SecureString).
+  # Values are stored unencrypted in SSM but are NoEcho in CloudFormation
+  # and encrypted at rest inside Lambda environment variables.
+  # For SecureString storage, create the parameters manually via CLI and
+  # switch the Lambda env vars to {{resolve:ssm-secure:...}} references.
+  # =============================================================================
+  JwtSecretParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/${Environment}/jwt-secret'
+      Type: String
+      Value: !Ref JwtSecret
+      Description: !Sub 'JWT signing secret for ${ProjectName} ${Environment}'
+      Tags:
+        Name: !Sub '${ProjectName}-${Environment}-jwt-secret'
+        Environment: !Ref Environment
+
+  MigrationSecretParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/${Environment}/migration-secret'
+      Type: String
+      Value: !Ref MigrationSecret
+      Description: !Sub 'Migration endpoint secret for ${ProjectName} ${Environment}'
+      Tags:
+        Name: !Sub '${ProjectName}-${Environment}-migration-secret'
+        Environment: !Ref Environment
 
   # Lambda Log Group
   ApiLambdaLogGroup:
@@ -338,3 +382,11 @@ Outputs:
     Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
     Export:
       Name: !Sub '${ProjectName}-${Environment}-api-url'
+
+  JwtSecretParameterName:
+    Description: SSM Parameter name for JWT secret
+    Value: !Ref JwtSecretParameter
+
+  MigrationSecretParameterName:
+    Description: SSM Parameter name for Migration secret
+    Value: !Ref MigrationSecretParameter
