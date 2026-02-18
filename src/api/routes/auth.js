@@ -6,7 +6,7 @@ const {
   deactivateCredential,
   updateLastUsed,
 } = require('../repositories/credentialRepository');
-const { hashPassword, verifyPassword } = require('../utils/password');
+const { hashPassword, verifyPassword, checkPasswordStrength } = require('../utils/password');
 const { generateApiKey, hashApiKey } = require('../utils/apiKey');
 const { generateToken } = require('../utils/jwt');
 
@@ -61,10 +61,29 @@ async function authRoutes(fastify) {
             },
           },
         },
+        422: {
+          type: 'object',
+          properties: {
+            error: {
+              type: 'object',
+              properties: {
+                message: { type: 'string' },
+                statusCode: { type: 'integer' },
+              },
+            },
+          },
+        },
       },
     },
   }, async (request, reply) => {
     const { email, name, password } = request.body;
+
+    const { valid, failures } = checkPasswordStrength(password);
+    if (!valid) {
+      return reply.status(422).send({
+        error: { message: `Password too weak: ${failures.join(', ')}`, statusCode: 422 },
+      });
+    }
 
     let user;
     try {
