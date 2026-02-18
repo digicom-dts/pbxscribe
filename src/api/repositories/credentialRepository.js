@@ -98,6 +98,24 @@ async function findActiveCredentialByHash(pool, hash, credentialType) {
 }
 
 /**
+ * Update expires_at for a credential
+ * @param {Pool} pool
+ * @param {string} credentialId
+ * @param {Date} expiresAt
+ * @returns {Promise<Object|null>} Updated credential row, or null if not found
+ */
+async function updateCredentialExpiry(pool, credentialId, expiresAt) {
+  const result = await pool.query(
+    `UPDATE user_credentials
+     SET expires_at = $2, updated_at = NOW()
+     WHERE id = $1
+     RETURNING id, label, is_active, expires_at, created_at`,
+    [credentialId, expiresAt]
+  );
+  return result.rows[0] || null;
+}
+
+/**
  * Deactivate a credential by ID
  * @param {Pool} pool
  * @param {string} credentialId - UUID
@@ -132,6 +150,7 @@ module.exports = {
   createCredential,
   findCredentialsByUserId,
   findActiveCredentialByHash,
+  updateCredentialExpiry,
   deactivateCredential,
   updateLastUsed,
 };
