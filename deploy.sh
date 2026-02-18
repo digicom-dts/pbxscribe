@@ -13,14 +13,25 @@
 #   --infra-only    Update CloudFormation stack only (skip Lambda code upload)
 #   --code-only     Upload Lambda code only (skip CloudFormation update)
 #   --migrate       Call POST /migrate after deployment to run pending migrations
+#   --drop-tables   Drop all tables before migrating (requires --migrate). Use with caution.
 # =============================================================================
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Load .env (only sets variables not already present in the shell environment,
-# so shell env vars and command-line prefixes always take precedence)
+# Resolve environment (needed before loading the env file)
 # ---------------------------------------------------------------------------
-if [ -f .env ]; then
+if [[ "${1:-}" =~ ^(dev|staging|prod)$ ]]; then
+  ENVIRONMENT="$1"
+else
+  ENVIRONMENT="${ENVIRONMENT:-dev}"
+fi
+
+# ---------------------------------------------------------------------------
+# Load .env.<environment> (only sets variables not already present in the
+# shell environment, so shell env vars always take precedence)
+# ---------------------------------------------------------------------------
+ENV_FILE=".env.${ENVIRONMENT}"
+if [ -f "$ENV_FILE" ]; then
   while IFS= read -r line || [ -n "$line" ]; do
     # Skip blank lines and comments
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
@@ -30,18 +41,14 @@ if [ -f .env ]; then
     key="${key// /}"
     # Skip if already set in the environment
     [ -z "${!key+x}" ] && export "$key=$value"
-  done < .env
+  done < "$ENV_FILE"
+else
+  fail "Environment file '$ENV_FILE' not found"
 fi
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-# Positional arg overrides ENVIRONMENT from .env
-if [[ "${1:-}" =~ ^(dev|staging|prod)$ ]]; then
-  ENVIRONMENT="$1"
-else
-  ENVIRONMENT="${ENVIRONMENT:-dev}"
-fi
 
 PROJECT_NAME="pbxscribe-api-backend"
 STACK_NAME="${PROJECT_NAME}-${ENVIRONMENT}-api"
@@ -55,14 +62,20 @@ ZIP_FILE="function.zip"
 RUN_INFRA=true
 RUN_CODE=true
 RUN_MIGRATE=false
+DROP_TABLES=false
 
 for arg in "$@"; do
   case $arg in
-    --infra-only) RUN_CODE=false ;;
-    --code-only)  RUN_INFRA=false ;;
-    --migrate)    RUN_MIGRATE=true ;;
+    --infra-only)  RUN_CODE=false ;;
+    --code-only)   RUN_INFRA=false ;;
+    --migrate)     RUN_MIGRATE=true ;;
+    --drop-tables) DROP_TABLES=true ;;
   esac
 done
+
+if $DROP_TABLES && ! $RUN_MIGRATE; then
+  fail "--drop-tables requires --migrate"
+fi
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -192,11 +205,17 @@ if $RUN_MIGRATE; then
       --output text)
   fi
 
+  MIGRATE_BODY='{}'
+  if $DROP_TABLES; then
+    log "Drop tables flag set — tables will be dropped before migrating"
+    MIGRATE_BODY='{"drop_tables":true}'
+  fi
+
   RESPONSE=$(curl -s -o /tmp/migrate_response.json -w "%{http_code}" \
     -X POST "${API_URL}/migrate" \
     -H "x-migration-secret: ${MIGRATION_SECRET}" \
     -H "Content-Type: application/json" \
-    -d '{}')
+    -d "$MIGRATE_BODY")
 
   BODY=$(cat /tmp/migrate_response.json)
 

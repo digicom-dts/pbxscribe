@@ -3,11 +3,9 @@ const { createUser, findUserByEmail } = require('../repositories/userRepository'
 const {
   createCredential,
   findCredentialsByUserId,
-  deactivateCredential,
   updateLastUsed,
 } = require('../repositories/credentialRepository');
-const { hashPassword, verifyPassword } = require('../utils/password');
-const { generateApiKey, hashApiKey } = require('../utils/apiKey');
+const { hashPassword, verifyPassword, checkPasswordStrength } = require('../utils/password');
 const { generateToken } = require('../utils/jwt');
 
 /**
@@ -23,11 +21,11 @@ async function authRoutes(fastify) {
       description: 'Creates a new user account. If a password is supplied, a JWT token is returned immediately.',
       body: {
         type: 'object',
-        required: ['email', 'name'],
+        required: ['email', 'name', 'password'],
         properties: {
           email: { type: 'string', format: 'email' },
           name: { type: 'string', minLength: 1, maxLength: 255 },
-          password: { type: 'string', minLength: 8, description: 'Optional. If omitted the account has no password credential.' },
+          password: { type: 'string', minLength: 8 },
         },
         additionalProperties: false,
       },
@@ -38,7 +36,7 @@ async function authRoutes(fastify) {
             user: {
               type: 'object',
               properties: {
-                id: { type: 'string', format: 'uuid' },
+                id: { type: 'integer' },
                 email: { type: 'string', format: 'email' },
                 name: { type: 'string' },
                 status: { type: 'string', enum: ['active', 'inactive', 'suspended'] },
@@ -46,10 +44,22 @@ async function authRoutes(fastify) {
                 updated_at: { type: 'string', format: 'date-time' },
               },
             },
-            token: { type: 'string', description: 'JWT token — only present when a password was supplied' },
+            token: { type: 'string', description: 'JWT token' },
           },
         },
         409: {
+          type: 'object',
+          properties: {
+            error: {
+              type: 'object',
+              properties: {
+                message: { type: 'string' },
+                statusCode: { type: 'integer' },
+              },
+            },
+          },
+        },
+        422: {
           type: 'object',
           properties: {
             error: {
@@ -66,6 +76,13 @@ async function authRoutes(fastify) {
   }, async (request, reply) => {
     const { email, name, password } = request.body;
 
+    const { valid, failures } = checkPasswordStrength(password);
+    if (!valid) {
+      return reply.status(422).send({
+        error: { message: `Password too weak: ${failures.join(', ')}`, statusCode: 422 },
+      });
+    }
+
     let user;
     try {
       user = await createUser(fastify.pg, { email, name });
@@ -78,22 +95,16 @@ async function authRoutes(fastify) {
       throw error;
     }
 
-    let token = null;
-    if (password) {
-      const hash = await hashPassword(password);
-      await createCredential(fastify.pg, {
-        userId: user.id,
-        credentialType: 'password',
-        credentialHash: hash,
-        label: 'password',
-      });
-      token = generateToken({ sub: user.id, email: user.email, name: user.name });
-    }
+    const hash = await hashPassword(password);
+    await createCredential(fastify.pg, {
+      userId: user.id,
+      credentialType: 'password',
+      credentialHash: hash,
+      label: 'password',
+    });
 
-    const response = { user };
-    if (token) response.token = token;
-
-    return reply.status(201).send(response);
+    const token = generateToken({ sub: user.id, email: user.email, name: user.name });
+    return reply.status(201).send({ user, token });
   });
 
   // POST /auth/login
@@ -119,7 +130,7 @@ async function authRoutes(fastify) {
             user: {
               type: 'object',
               properties: {
-                id: { type: 'string', format: 'uuid' },
+                id: { type: 'integer' },
                 email: { type: 'string', format: 'email' },
                 name: { type: 'string' },
                 status: { type: 'string', enum: ['active', 'inactive', 'suspended'] },
@@ -191,7 +202,7 @@ async function authRoutes(fastify) {
         200: {
           type: 'object',
           properties: {
-            id: { type: 'string', format: 'uuid' },
+            id: { type: 'integer' },
             email: { type: 'string', format: 'email' },
             name: { type: 'string' },
           },
@@ -202,110 +213,6 @@ async function authRoutes(fastify) {
     return request.user;
   });
 
-  // POST /auth/api-keys — protected
-  fastify.post('/auth/api-keys', {
-    preHandler: [fastify.authenticate],
-    schema: {
-      tags: ['Auth'],
-      summary: 'Create an API key',
-      description: 'Generates a new API key for the authenticated user. The plaintext key is only returned once.',
-      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
-      body: {
-        type: 'object',
-        properties: {
-          label: { type: 'string', maxLength: 100 },
-          expires_in_days: { type: 'integer', minimum: 1, maximum: 365 },
-        },
-        additionalProperties: false,
-      },
-      response: {
-        201: {
-          type: 'object',
-          properties: {
-            id: { type: 'string', format: 'uuid' },
-            key: { type: 'string', description: 'Plaintext API key — shown only once, store securely' },
-            label: { type: 'string', nullable: true },
-            expires_at: { type: 'string', format: 'date-time', nullable: true },
-            created_at: { type: 'string', format: 'date-time' },
-          },
-        },
-      },
-    },
-  }, async (request, reply) => {
-    const { label, expires_in_days } = request.body || {};
-
-    let expiresAt = null;
-    if (expires_in_days) {
-      expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + expires_in_days);
-    }
-
-    const plainKey = generateApiKey();
-    const hash = hashApiKey(plainKey);
-
-    const credential = await createCredential(fastify.pg, {
-      userId: request.user.id,
-      credentialType: 'api_key',
-      credentialHash: hash,
-      label: label || null,
-      expiresAt,
-    });
-
-    return reply.status(201).send({
-      id: credential.id,
-      key: plainKey,   // Only time the plaintext key is returned
-      label: credential.label,
-      expires_at: credential.expires_at,
-      created_at: credential.created_at,
-    });
-  });
-
-  // DELETE /auth/api-keys/:id — protected
-  fastify.delete('/auth/api-keys/:id', {
-    preHandler: [fastify.authenticate],
-    schema: {
-      tags: ['Auth'],
-      summary: 'Revoke an API key',
-      description: 'Deactivates an API key owned by the authenticated user.',
-      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
-      params: {
-        type: 'object',
-        properties: {
-          id: { type: 'string', format: 'uuid' },
-        },
-      },
-      response: {
-        204: { type: 'null', description: 'Key successfully revoked' },
-        404: {
-          type: 'object',
-          properties: {
-            error: {
-              type: 'object',
-              properties: {
-                message: { type: 'string' },
-                statusCode: { type: 'integer' },
-              },
-            },
-          },
-        },
-      },
-    },
-  }, async (request, reply) => {
-    const { id } = request.params;
-
-    // Verify ownership before deactivating
-    const credentials = await findCredentialsByUserId(fastify.pg, request.user.id, 'api_key');
-    const owned = credentials.find(c => c.id === id);
-
-    if (!owned) {
-      return reply.status(404).send({
-        error: { message: 'API key not found', statusCode: 404 },
-      });
-    }
-
-    await deactivateCredential(fastify.pg, id);
-    return reply.status(204).send();
-  });
 }
 
 module.exports = authRoutes;

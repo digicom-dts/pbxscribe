@@ -15,7 +15,8 @@ async function swaggerPlugin(fastify) {
       },
       tags: [
         { name: 'Health', description: 'Service and database health checks' },
-        { name: 'Auth', description: 'Authentication, login, and API key management' },
+        { name: 'Auth', description: 'Authentication and login' },
+        { name: 'API Keys', description: 'API key management' },
         { name: 'Users', description: 'User CRUD operations' },
         { name: 'Migrations', description: 'Database migration management' },
       ],

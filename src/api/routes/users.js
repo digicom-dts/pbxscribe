@@ -10,7 +10,7 @@ const {
 const userSchema = {
   type: 'object',
   properties: {
-    id: { type: 'string', format: 'uuid' },
+    id: { type: 'integer' },
     email: { type: 'string', format: 'email' },
     name: { type: 'string' },
     status: { type: 'string', enum: ['active', 'inactive', 'suspended'] },
@@ -111,7 +111,7 @@ async function userRoutes(fastify) {
       params: {
         type: 'object',
         properties: {
-          id: { type: 'string', format: 'uuid' },
+          id: { type: 'integer' },
         },
       },
       response: {
@@ -144,7 +144,7 @@ async function userRoutes(fastify) {
       params: {
         type: 'object',
         properties: {
-          id: { type: 'string', format: 'uuid' },
+          id: { type: 'integer' },
         },
       },
       body: {
@@ -186,7 +186,7 @@ async function userRoutes(fastify) {
       params: {
         type: 'object',
         properties: {
-          id: { type: 'string', format: 'uuid' },
+          id: { type: 'integer' },
         },
       },
       response: {
