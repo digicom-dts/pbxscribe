@@ -215,6 +215,41 @@ async function authRoutes(fastify) {
     return request.user;
   });
 
+  // GET /auth/api-keys — protected
+  fastify.get('/auth/api-keys', {
+    preHandler: [fastify.authenticate],
+    schema: {
+      tags: ['Auth'],
+      summary: 'List API keys',
+      description: 'Returns all API keys belonging to the authenticated user.',
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            api_keys: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string', format: 'uuid' },
+                  label: { type: 'string', nullable: true },
+                  is_active: { type: 'boolean' },
+                  last_used_at: { type: 'string', format: 'date-time', nullable: true },
+                  expires_at: { type: 'string', format: 'date-time', nullable: true },
+                  created_at: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const credentials = await findCredentialsByUserId(fastify.pg, request.user.id, 'api_key');
+    return { api_keys: credentials };
+  });
+
   // POST /auth/api-keys — protected
   fastify.post('/auth/api-keys', {
     preHandler: [fastify.authenticate],
