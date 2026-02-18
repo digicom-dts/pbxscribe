@@ -88,10 +88,24 @@ async function runMigration(client, filename) {
 }
 
 /**
+ * Drop all application tables and reset migration history.
+ * @param {Client} client - PostgreSQL client
+ */
+async function dropAllTables(client) {
+  await client.query(`
+    DROP TABLE IF EXISTS user_credentials CASCADE;
+    DROP TABLE IF EXISTS users CASCADE;
+  `);
+  await client.query('DELETE FROM schema_migrations');
+  console.log('All tables dropped and migration history cleared');
+}
+
+/**
  * Run all pending migrations
+ * @param {{ dropTables?: boolean }} [options]
  * @returns {Promise<{applied: string[], message: string}>} Migration result
  */
-async function runMigrations() {
+async function runMigrations({ dropTables = false } = {}) {
   const dbConfig = await getDatabaseConfig();
   const client = new Client(dbConfig);
 
@@ -101,6 +115,10 @@ async function runMigrations() {
 
     // Ensure migrations table exists
     await ensureMigrationsTable(client);
+
+    if (dropTables) {
+      await dropAllTables(client);
+    }
 
     // Get applied and pending migrations
     const appliedMigrations = await getAppliedMigrations(client);

@@ -13,6 +13,7 @@
 #   --infra-only    Update CloudFormation stack only (skip Lambda code upload)
 #   --code-only     Upload Lambda code only (skip CloudFormation update)
 #   --migrate       Call POST /migrate after deployment to run pending migrations
+#   --drop-tables   Drop all tables before migrating (requires --migrate). Use with caution.
 # =============================================================================
 set -euo pipefail
 
@@ -55,14 +56,20 @@ ZIP_FILE="function.zip"
 RUN_INFRA=true
 RUN_CODE=true
 RUN_MIGRATE=false
+DROP_TABLES=false
 
 for arg in "$@"; do
   case $arg in
-    --infra-only) RUN_CODE=false ;;
-    --code-only)  RUN_INFRA=false ;;
-    --migrate)    RUN_MIGRATE=true ;;
+    --infra-only)  RUN_CODE=false ;;
+    --code-only)   RUN_INFRA=false ;;
+    --migrate)     RUN_MIGRATE=true ;;
+    --drop-tables) DROP_TABLES=true ;;
   esac
 done
+
+if $DROP_TABLES && ! $RUN_MIGRATE; then
+  fail "--drop-tables requires --migrate"
+fi
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -192,11 +199,17 @@ if $RUN_MIGRATE; then
       --output text)
   fi
 
+  MIGRATE_BODY='{}'
+  if $DROP_TABLES; then
+    log "Drop tables flag set — tables will be dropped before migrating"
+    MIGRATE_BODY='{"drop_tables":true}'
+  fi
+
   RESPONSE=$(curl -s -o /tmp/migrate_response.json -w "%{http_code}" \
     -X POST "${API_URL}/migrate" \
     -H "x-migration-secret: ${MIGRATION_SECRET}" \
     -H "Content-Type: application/json" \
-    -d '{}')
+    -d "$MIGRATE_BODY")
 
   BODY=$(cat /tmp/migrate_response.json)
 

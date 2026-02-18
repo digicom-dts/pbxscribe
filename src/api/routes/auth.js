@@ -38,7 +38,7 @@ async function authRoutes(fastify) {
             user: {
               type: 'object',
               properties: {
-                id: { type: 'string', format: 'uuid' },
+                id: { type: 'integer' },
                 email: { type: 'string', format: 'email' },
                 name: { type: 'string' },
                 status: { type: 'string', enum: ['active', 'inactive', 'suspended'] },
@@ -132,7 +132,7 @@ async function authRoutes(fastify) {
             user: {
               type: 'object',
               properties: {
-                id: { type: 'string', format: 'uuid' },
+                id: { type: 'integer' },
                 email: { type: 'string', format: 'email' },
                 name: { type: 'string' },
                 status: { type: 'string', enum: ['active', 'inactive', 'suspended'] },
@@ -204,7 +204,7 @@ async function authRoutes(fastify) {
         200: {
           type: 'object',
           properties: {
-            id: { type: 'string', format: 'uuid' },
+            id: { type: 'integer' },
             email: { type: 'string', format: 'email' },
             name: { type: 'string' },
           },
@@ -232,7 +232,7 @@ async function authRoutes(fastify) {
               items: {
                 type: 'object',
                 properties: {
-                  id: { type: 'string', format: 'uuid' },
+                  id: { type: 'integer' },
                   label: { type: 'string', nullable: true },
                   is_active: { type: 'boolean' },
                   last_used_at: { type: 'string', format: 'date-time', nullable: true },
@@ -270,7 +270,7 @@ async function authRoutes(fastify) {
         201: {
           type: 'object',
           properties: {
-            id: { type: 'string', format: 'uuid' },
+            id: { type: 'integer' },
             key: { type: 'string', description: 'Plaintext API key — shown only once, store securely' },
             label: { type: 'string', nullable: true },
             expires_at: { type: 'string', format: 'date-time', nullable: true },
@@ -319,7 +319,7 @@ async function authRoutes(fastify) {
       params: {
         type: 'object',
         properties: {
-          id: { type: 'string', format: 'uuid' },
+          id: { type: 'integer' },
         },
       },
       response: {
@@ -343,7 +343,7 @@ async function authRoutes(fastify) {
 
     // Verify ownership before deactivating
     const credentials = await findCredentialsByUserId(fastify.pg, request.user.id, 'api_key');
-    const owned = credentials.find(c => c.id === id);
+    const owned = credentials.find(c => String(c.id) === String(id));
 
     if (!owned) {
       return reply.status(404).send({
