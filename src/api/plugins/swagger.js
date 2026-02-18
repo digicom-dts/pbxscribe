@@ -13,6 +13,9 @@ async function swaggerPlugin(fastify) {
         description: 'User management and authentication API for PBXScribe, deployed on AWS Lambda.',
         version: '1.0.0',
       },
+      servers: [
+        { url: process.env.API_BASE_URL || '/' },
+      ],
       tags: [
         { name: 'Health', description: 'Service and database health checks' },
         { name: 'Auth', description: 'Authentication and login' },
@@ -32,7 +35,7 @@ async function swaggerPlugin(fastify) {
             type: 'apiKey',
             in: 'header',
             name: 'Authorization',
-            description: 'API key in the format: `ApiKey <plaintext-key>`',
+            description: 'API key obtained from POST /api-keys. Enter the plaintext key — the `ApiKey` prefix is added automatically.',
           },
         },
       },
@@ -44,6 +47,13 @@ async function swaggerPlugin(fastify) {
     uiConfig: {
       docExpansion: 'list',
       deepLinking: true,
+      requestInterceptor: (request) => {
+        const auth = request.headers['Authorization'];
+        if (auth && !auth.startsWith('Bearer ') && !auth.startsWith('ApiKey ')) {
+          request.headers['Authorization'] = 'ApiKey ' + auth;
+        }
+        return request;
+      },
     },
   });
 }
