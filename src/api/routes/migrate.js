@@ -13,6 +13,10 @@ async function migrateRoutes(fastify) {
    */
   fastify.post('/migrate', {
     schema: {
+      tags: ['Migrations'],
+      summary: 'Run database migrations',
+      description: 'Applies all pending SQL migrations. Protected by the `x-migration-secret` header.',
+      security: [{ migrationSecret: [] }],
       headers: {
         type: 'object',
         properties: {

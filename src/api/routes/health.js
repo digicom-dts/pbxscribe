@@ -7,7 +7,25 @@ const { getDatabaseConfig } = require('../config/database');
  */
 async function healthRoutes(fastify) {
   // Basic health check
-  fastify.get('/health', async (request, reply) => {
+  fastify.get('/health', {
+    schema: {
+      tags: ['Health'],
+      summary: 'Service health check',
+      description: 'Returns basic service status and uptime.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string' },
+            service: { type: 'string' },
+            environment: { type: 'string' },
+            timestamp: { type: 'string', format: 'date-time' },
+            uptime: { type: 'number' },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
     return {
       status: 'ok',
       service: 'pbxscribe-api',
@@ -18,7 +36,48 @@ async function healthRoutes(fastify) {
   });
 
   // Database health check
-  fastify.get('/health/db', async (request, reply) => {
+  fastify.get('/health/db', {
+    schema: {
+      tags: ['Health'],
+      summary: 'Database health check',
+      description: 'Verifies database connectivity and returns connection details.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string' },
+            database: { type: 'string' },
+            timestamp: { type: 'string', format: 'date-time' },
+            details: {
+              type: 'object',
+              properties: {
+                host: { type: 'string' },
+                port: { type: 'integer' },
+                database: { type: 'string' },
+                version: { type: 'string' },
+                serverTime: { type: 'string' },
+              },
+            },
+          },
+        },
+        503: {
+          type: 'object',
+          properties: {
+            status: { type: 'string' },
+            database: { type: 'string' },
+            timestamp: { type: 'string', format: 'date-time' },
+            error: {
+              type: 'object',
+              properties: {
+                message: { type: 'string' },
+                code: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
     try {
       const result = await fastify.pg.query(
         'SELECT version(), current_database(), NOW() as current_time'
@@ -54,7 +113,30 @@ async function healthRoutes(fastify) {
   });
 
   // Readiness check
-  fastify.get('/ready', async (request, reply) => {
+  fastify.get('/ready', {
+    schema: {
+      tags: ['Health'],
+      summary: 'Readiness probe',
+      description: 'Checks if the service is ready to accept traffic (requires DB connectivity).',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string' },
+            timestamp: { type: 'string', format: 'date-time' },
+          },
+        },
+        503: {
+          type: 'object',
+          properties: {
+            status: { type: 'string' },
+            timestamp: { type: 'string', format: 'date-time' },
+            error: { type: 'string' },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
     try {
       await fastify.pg.query('SELECT 1');
       return {
@@ -71,7 +153,22 @@ async function healthRoutes(fastify) {
   });
 
   // Liveness check (simple ping)
-  fastify.get('/live', async (request, reply) => {
+  fastify.get('/live', {
+    schema: {
+      tags: ['Health'],
+      summary: 'Liveness probe',
+      description: 'Simple ping to confirm the process is alive.',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string' },
+            timestamp: { type: 'string', format: 'date-time' },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
     return {
       status: 'alive',
       timestamp: new Date().toISOString(),

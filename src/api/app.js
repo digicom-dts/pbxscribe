@@ -2,6 +2,7 @@
 const fastify = require('fastify');
 const databasePlugin = require('./plugins/database');
 const authPlugin = require('./plugins/auth');
+const swaggerPlugin = require('./plugins/swagger');
 const healthRoutes = require('./routes/health');
 const migrateRoutes = require('./routes/migrate');
 const userRoutes = require('./routes/users');
@@ -49,6 +50,9 @@ async function init() {
   await app.register(databasePlugin);
   await app.register(authPlugin);
 
+  // OpenAPI v3 docs
+  await app.register(swaggerPlugin);
+
   // Register plugins and routes with environment prefix
   await app.register(async function (fastify) {
     await fastify.register(healthRoutes);
@@ -57,7 +61,24 @@ async function init() {
     await fastify.register(authRoutes);
 
     // Root route
-    fastify.get('/', async (request, reply) => {
+    fastify.get('/', {
+      schema: {
+        tags: ['Health'],
+        summary: 'Service info',
+        description: 'Returns service name, version, and environment.',
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              service: { type: 'string' },
+              version: { type: 'string' },
+              environment: { type: 'string' },
+              timestamp: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    }, async (request, reply) => {
       return {
         service: 'PBXScribe API',
         version: '1.0.0',
