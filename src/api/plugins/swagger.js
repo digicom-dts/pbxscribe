@@ -3,6 +3,8 @@ const swagger = require('@fastify/swagger');
 const swaggerUi = require('@fastify/swagger-ui');
 
 async function swaggerPlugin(fastify) {
+  const basePath = process.env.NODE_ENV ? `/${process.env.NODE_ENV}` : '';
+
   await fastify.register(swagger, {
     openapi: {
       openapi: '3.0.0',
@@ -31,19 +33,13 @@ async function swaggerPlugin(fastify) {
             name: 'Authorization',
             description: 'API key in the format: `ApiKey <plaintext-key>`',
           },
-          migrationSecret: {
-            type: 'apiKey',
-            in: 'header',
-            name: 'x-migration-secret',
-            description: 'Migration secret configured via MIGRATION_SECRET env var',
-          },
         },
       },
     },
   });
 
   await fastify.register(swaggerUi, {
-    routePrefix: '/docs',
+    routePrefix: `${basePath}/docs`,
     uiConfig: {
       docExpansion: 'list',
       deepLinking: true,
