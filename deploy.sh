@@ -18,10 +18,20 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Load .env (only sets variables not already present in the shell environment,
-# so shell env vars and command-line prefixes always take precedence)
+# Resolve environment (needed before loading the env file)
 # ---------------------------------------------------------------------------
-if [ -f .env ]; then
+if [[ "${1:-}" =~ ^(dev|staging|prod)$ ]]; then
+  ENVIRONMENT="$1"
+else
+  ENVIRONMENT="${ENVIRONMENT:-dev}"
+fi
+
+# ---------------------------------------------------------------------------
+# Load .env.<environment> (only sets variables not already present in the
+# shell environment, so shell env vars always take precedence)
+# ---------------------------------------------------------------------------
+ENV_FILE=".env.${ENVIRONMENT}"
+if [ -f "$ENV_FILE" ]; then
   while IFS= read -r line || [ -n "$line" ]; do
     # Skip blank lines and comments
     [[ "$line" =~ ^[[:space:]]*# ]] && continue
@@ -31,18 +41,14 @@ if [ -f .env ]; then
     key="${key// /}"
     # Skip if already set in the environment
     [ -z "${!key+x}" ] && export "$key=$value"
-  done < .env
+  done < "$ENV_FILE"
+else
+  fail "Environment file '$ENV_FILE' not found"
 fi
 
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-# Positional arg overrides ENVIRONMENT from .env
-if [[ "${1:-}" =~ ^(dev|staging|prod)$ ]]; then
-  ENVIRONMENT="$1"
-else
-  ENVIRONMENT="${ENVIRONMENT:-dev}"
-fi
 
 PROJECT_NAME="pbxscribe-api-backend"
 STACK_NAME="${PROJECT_NAME}-${ENVIRONMENT}-api"
