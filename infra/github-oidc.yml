@@ -3,27 +3,31 @@
 #
 # PURPOSE:
 #   Allows GitHub Actions to authenticate to AWS without storing long-lived
-#   access keys. The deploy role is assumed via OIDC only from commits pushed
-#   to the configured branch of the configured repository.
+#   access keys. The deploy role is scoped to a specific GitHub Environment
+#   (e.g. "dev" or "prod"), not a branch. This guarantees isolation:
+#   the dev role cannot be assumed when the workflow runs in the prod
+#   GitHub Environment, and vice versa — regardless of which branch triggered
+#   the workflow.
 #
-# DEPLOY ONCE (per AWS account):
+# DEPLOY ONCE PER ENVIRONMENT (run via setup-cicd.sh, or manually):
 #   aws cloudformation deploy \
 #     --template-file infra/github-oidc.yml \
-#     --stack-name pbxscribe-api-backend-prod-github-oidc \
+#     --stack-name pbxscribe-api-backend-dev-github-oidc \
 #     --capabilities CAPABILITY_NAMED_IAM \
 #     --parameter-overrides \
 #       ProjectName=pbxscribe-api-backend \
-#       Environment=prod \
+#       Environment=dev \
 #       GitHubOrg=digicom-dts \
-#       GitHubRepo=pbxscribe \
-#       DeployBranch=main
+#       GitHubRepo=pbxscribe
 #
 # NOTE: If an OIDC provider for token.actions.githubusercontent.com already
 #   exists in this account (from another stack), set CreateOIDCProvider=false.
 #
 # AFTER DEPLOY:
-#   Copy the DeployRoleArn output value and store it as the
-#   AWS_DEPLOY_ROLE_ARN secret in your GitHub repository settings.
+#   Copy DeployRoleArn from stack outputs and store it as the
+#   AWS_DEPLOY_ROLE_ARN secret inside the matching GitHub Environment
+#   (Settings → Environments → dev → Add secret).
+#   setup-cicd.sh does this automatically.
 # =============================================================================
 
 AWSTemplateFormatVersion: '2010-09-09'
@@ -48,11 +52,6 @@ Parameters:
     Type: String
     Default: pbxscribe
     Description: GitHub repository name (without org prefix)
-
-  DeployBranch:
-    Type: String
-    Default: main
-    Description: Branch that is allowed to trigger deployments
 
   CreateOIDCProvider:
     Type: String
@@ -94,9 +93,12 @@ Resources:
             Condition:
               StringEquals:
                 'token.actions.githubusercontent.com:aud': sts.amazonaws.com
-              StringLike:
-                # Only allow the specific repo + branch to assume this role
-                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/${DeployBranch}'
+                # Lock this role to jobs running inside the matching GitHub
+                # Environment (e.g. "dev" or "prod"). When a workflow job
+                # specifies `environment: dev`, GitHub sets the OIDC sub to
+                # repo:org/repo:environment:dev — so a dev role can never be
+                # assumed by a prod environment job, and vice versa.
+                'token.actions.githubusercontent.com:sub': !Sub 'repo:${GitHubOrg}/${GitHubRepo}:environment:${Environment}'
       MaxSessionDuration: 3600
       Policies:
         - PolicyName: LambdaBlueGreenDeployPolicy
@@ -154,8 +156,9 @@ Outputs:
   DeployRoleArn:
     Description: >
       ARN of the GitHub Actions deploy role.
-      Store this value as the AWS_DEPLOY_ROLE_ARN secret in your GitHub
-      repository (Settings → Secrets and variables → Actions).
+      Store this as the AWS_DEPLOY_ROLE_ARN secret inside the matching
+      GitHub Environment (Settings → Environments → <env> → Add secret).
+      setup-cicd.sh sets this automatically.
     Value: !GetAtt GitHubDeployRole.Arn
     Export:
       Name: !Sub '${ProjectName}-${Environment}-github-deploy-role-arn'

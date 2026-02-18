@@ -1,21 +1,30 @@
 # =============================================================================
 # Blue-Green Lambda Deployment via AWS CodeDeploy
 #
-# Triggers on every push (or merged PR) to the main branch.
+# BRANCH → ENVIRONMENT MAPPING
+# ┌──────────────┬─────────────┬───────────────────────────────────────────┐
+# │ Branch       │ Environment │ Notes                                     │
+# ├──────────────┼─────────────┼───────────────────────────────────────────┤
+# │ develop      │ dev         │ Auto-deploys on every push                │
+# │ main         │ prod        │ Requires approval (configure in GitHub)   │
+# │ staging      │ staging     │ Auto-deploys on every push                │
+# └──────────────┴─────────────┴───────────────────────────────────────────┘
+# To change the mapping, edit the 'Map branch → environment' step below.
+# To use the same branch for all envs, just keep one entry in the mapping.
 #
-# Strategy: LambdaCanary10Percent5Minutes
-#   1. Uploads new code and publishes a new Lambda version.
-#   2. First run: creates the 'live' alias and updates API Gateway to use it.
-#   3. Subsequent runs: CodeDeploy shifts 10% of traffic to the new version
-#      for 5 minutes, monitoring the LambdaErrorAlarm. If no alarm fires,
-#      traffic shifts to 100%. If the alarm fires, CodeDeploy auto-rolls back.
+# ISOLATION GUARANTEE
+# Each environment has its own AWS_DEPLOY_ROLE_ARN secret stored at the
+# GitHub Environment level. The matching IAM role (created by setup-cicd.sh)
+# can only be assumed when the workflow is running inside that named GitHub
+# Environment. A dev role cannot touch prod infrastructure, and vice versa.
 #
-# Prerequisites (one-time setup):
-#   1. Deploy infra/github-oidc.yml to create the OIDC provider and deploy role.
-#   2. Add the role ARN as the AWS_DEPLOY_ROLE_ARN secret in GitHub:
-#      Settings → Secrets and variables → Actions → New repository secret.
-#   3. Deploy infra/services/api.yml (via deploy.sh) to create the CodeDeploy
-#      application and deployment group added in this branch.
+# STRATEGY: LambdaCanary10Percent5Minutes
+#   Routes 10% of traffic to the new Lambda version for 5 minutes.
+#   Auto-rolls back if the LambdaErrorAlarm fires (≥3 errors / 60s).
+#
+# PREREQUISITES (run setup-cicd.sh once per environment):
+#   ./setup-cicd.sh dev   — sets up dev
+#   ./setup-cicd.sh prod  — sets up prod
 # =============================================================================
 
 name: Deploy to Lambda (Blue-Green)
@@ -23,18 +32,50 @@ name: Deploy to Lambda (Blue-Green)
 on:
   push:
     branches:
-      - main
+      - develop  # → dev
+      - main     # → prod
+      - staging  # → staging
 
 env:
   AWS_REGION: us-east-2
   PROJECT_NAME: pbxscribe-api-backend
-  ENVIRONMENT: dev
   ALIAS_NAME: live
 
 jobs:
-  deploy:
-    name: Blue-Green Lambda Deploy
+  # ── Resolve which environment this branch deploys to ──────────────────────
+  resolve-environment:
+    name: Resolve Environment
     runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.map.outputs.environment }}
+    steps:
+      - name: Map branch → environment
+        id: map
+        run: |
+          # Edit this mapping to match your branching strategy
+          case "${{ github.ref_name }}" in
+            main)    ENV="prod"    ;;
+            staging) ENV="staging" ;;
+            main)       ENV="dev"     ;;
+          esac
+          echo "environment=$ENV" >> "$GITHUB_OUTPUT"
+          echo "Branch '${{ github.ref_name }}' → environment '$ENV'"
+
+  # ── Blue-green Lambda deployment ──────────────────────────────────────────
+  deploy:
+    name: Deploy → ${{ needs.resolve-environment.outputs.environment }}
+    needs: resolve-environment
+    runs-on: ubuntu-latest
+
+    # GitHub Environment — provides environment-scoped AWS_DEPLOY_ROLE_ARN
+    # secret and optional approval gates (configure in repo Settings).
+    # The matching IAM role trust policy is locked to this environment name,
+    # so a dev role cannot be assumed when deploying to prod, and vice versa.
+    environment: ${{ needs.resolve-environment.outputs.environment }}
+
+    env:
+      ENVIRONMENT: ${{ needs.resolve-environment.outputs.environment }}
+
     permissions:
       id-token: write  # Required for OIDC
       contents: read
@@ -117,7 +158,7 @@ jobs:
               --function-name "$FUNCTION_NAME" \
               --name "$ALIAS_NAME" \
               --function-version "$NEW_VERSION" \
-              --description "Production live alias (blue-green)" \
+              --description "Live alias (blue-green, $ENVIRONMENT)" \
               --no-cli-pager > /dev/null
 
             ACCOUNT_ID=$(aws sts get-caller-identity \
@@ -170,7 +211,7 @@ jobs:
               exit 0
             fi
 
-            echo "=== Blue-green deploy: $CURRENT_VERSION → $NEW_VERSION ==="
+            echo "=== Blue-green deploy ($ENVIRONMENT): $CURRENT_VERSION → $NEW_VERSION ==="
             echo "Traffic: 10% to new version for 5 min, then 100% if no alarms"
 
             # Build AppSpec JSON for CodeDeploy
@@ -197,9 +238,7 @@ jobs:
             # Wrap AppSpec in the CodeDeploy revision envelope
             REVISION=$(echo "$APPSPEC" | jq '{
               "revisionType": "AppSpecContent",
-              "appSpecContent": {
-                "content": (. | tojson)
-              }
+              "appSpecContent": { "content": (. | tojson) }
             }')
 
             DEPLOYMENT_ID=$(aws deploy create-deployment \
@@ -216,7 +255,6 @@ jobs:
           fi
 
       - name: Wait for CodeDeploy to complete
-        # Only runs for real CodeDeploy deployments (not first-run or skipped)
         if: ${{ !contains(env.DEPLOYMENT_ID, 'initial') && !contains(env.DEPLOYMENT_ID, 'skipped') }}
         run: |
           echo "Waiting for $DEPLOYMENT_ID..."
@@ -233,7 +271,7 @@ jobs:
             --query 'FunctionVersion' \
             --output text \
             --no-cli-pager 2>/dev/null || echo "N/A")
-          echo "Alias '$ALIAS_NAME' is now serving version $FINAL_VERSION"
+          echo "[$ENVIRONMENT] Alias '$ALIAS_NAME' is now serving version $FINAL_VERSION"
 
       - name: Report CodeDeploy failure details
         if: failure()

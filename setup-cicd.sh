@@ -13,11 +13,14 @@
 #
 # What this script does:
 #   1. Deploys infra/github-oidc.yml  — creates the AWS OIDC provider and
-#      a GitHub Actions IAM role scoped to your repo + deploy branch.
-#   2. Deploys/updates infra/services/api.yml (--infra-only)  — adds the
+#      a GitHub Actions IAM role locked to the named GitHub Environment
+#      (e.g. "dev"). The role cannot be assumed from the "prod" environment
+#      or any other context.
+#   2. Deploys/updates infra/services/api.yml (--infra-only) — adds the
 #      CodeDeploy application and deployment group to the API stack.
-#   3. Sets the AWS_DEPLOY_ROLE_ARN secret in your GitHub repository so the
-#      workflow can authenticate to AWS without stored access keys.
+#   3. Creates the GitHub Environment in your repository.
+#   4. Stores AWS_DEPLOY_ROLE_ARN as an environment-level secret so each
+#      environment has its own isolated AWS credentials.
 #
 # Requirements:
 #   - aws CLI (configured with a profile that has CloudFormation/IAM rights)
@@ -53,7 +56,6 @@ AWS_REGION="${AWS_REGION:-us-east-2}"
 AWS_PROFILE="${AWS_PROFILE:-default}"
 GITHUB_ORG="${GITHUB_ORG:?GITHUB_ORG is not set. Add it to .env or the environment.}"
 GITHUB_REPO="${GITHUB_REPO:?GITHUB_REPO is not set. Add it to .env or the environment.}"
-DEPLOY_BRANCH="${DEPLOY_BRANCH:-main}"
 
 OIDC_STACK_NAME="${PROJECT_NAME}-${ENVIRONMENT}-github-oidc"
 API_STACK_NAME="${PROJECT_NAME}-${ENVIRONMENT}-api"
@@ -78,7 +80,6 @@ log "Checking required tools..."
 command -v aws > /dev/null || fail "aws CLI is not installed or not in PATH"
 command -v gh  > /dev/null || fail "gh CLI is not installed. Install from https://cli.github.com then run: gh auth login"
 
-# Verify gh is authenticated
 gh auth status > /dev/null 2>&1 || fail "gh CLI is not authenticated. Run: gh auth login"
 
 ok "aws and gh CLIs are available"
@@ -93,10 +94,9 @@ echo "  Project       : $PROJECT_NAME"
 echo "  AWS Region    : $AWS_REGION"
 echo "  AWS Profile   : $AWS_PROFILE"
 echo "  GitHub repo   : ${GITHUB_ORG}/${GITHUB_REPO}"
-echo "  Deploy branch : $DEPLOY_BRANCH"
 echo "  OIDC stack    : $OIDC_STACK_NAME"
 echo "  API stack     : $API_STACK_NAME"
-echo "  GitHub secret : $GITHUB_SECRET_NAME"
+echo "  GitHub secret : ${GITHUB_SECRET_NAME} (stored in '${ENVIRONMENT}' environment)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -128,7 +128,6 @@ aws_cmd cloudformation deploy \
     Environment="$ENVIRONMENT" \
     GitHubOrg="$GITHUB_ORG" \
     GitHubRepo="$GITHUB_REPO" \
-    DeployBranch="$DEPLOY_BRANCH" \
     CreateOIDCProvider="$CREATE_OIDC_PROVIDER"
 
 ok "OIDC stack deployed"
@@ -150,14 +149,30 @@ ok "Deploy role ARN: $DEPLOY_ROLE_ARN"
 echo
 
 # ---------------------------------------------------------------------------
-# Step 3: Set GitHub secret
+# Step 3: Create GitHub Environment and set environment-level secret
+#
+# Secrets are stored at the GitHub Environment level (not repo level).
+# This means each environment has its own isolated AWS_DEPLOY_ROLE_ARN.
+# The dev environment can only assume the dev IAM role, and the prod
+# environment can only assume the prod IAM role.
 # ---------------------------------------------------------------------------
-log "Setting GitHub secret '${GITHUB_SECRET_NAME}' on ${GITHUB_ORG}/${GITHUB_REPO}..."
+log "Creating GitHub Environment '${ENVIRONMENT}' on ${GITHUB_ORG}/${GITHUB_REPO}..."
+
+gh api \
+  --method PUT \
+  -H "Accept: application/vnd.github+json" \
+  "repos/${GITHUB_ORG}/${GITHUB_REPO}/environments/${ENVIRONMENT}" \
+  > /dev/null
+
+ok "GitHub Environment '${ENVIRONMENT}' ready"
+
+log "Storing ${GITHUB_SECRET_NAME} in '${ENVIRONMENT}' environment..."
 
 echo "$DEPLOY_ROLE_ARN" | gh secret set "$GITHUB_SECRET_NAME" \
+  --env "$ENVIRONMENT" \
   --repo "${GITHUB_ORG}/${GITHUB_REPO}"
 
-ok "GitHub secret set"
+ok "Secret set in '${ENVIRONMENT}' environment (not visible at repo level)"
 echo
 
 # ---------------------------------------------------------------------------
@@ -165,7 +180,6 @@ echo
 # ---------------------------------------------------------------------------
 log "Updating API stack ($API_STACK_NAME) to add CodeDeploy resources..."
 
-# Read secrets (needed by the infra stack even for --infra-only)
 if [ -z "${JWT_SECRET:-}" ]; then
   read -r -s -p "JWT_SECRET (min 32 chars): " JWT_SECRET
   echo
@@ -200,9 +214,12 @@ log "CI/CD setup complete"
 echo
 echo "  Environment       : $ENVIRONMENT"
 echo "  GitHub repo       : ${GITHUB_ORG}/${GITHUB_REPO}"
-echo "  Deploy branch     : $DEPLOY_BRANCH"
+echo "  GitHub Environment: ${ENVIRONMENT} (secret stored here)"
 echo "  Deploy role ARN   : $DEPLOY_ROLE_ARN"
-echo "  GitHub secret     : $GITHUB_SECRET_NAME"
 echo
-echo "Push or merge a commit to '$DEPLOY_BRANCH' to trigger the first deployment."
+echo "Branch → environment mapping (edit deploy.yml to change):"
+echo "  develop → dev | staging → staging | main → prod"
+echo
+echo "To add a prod approval gate:"
+echo "  GitHub → Settings → Environments → prod → Required reviewers"
 echo
