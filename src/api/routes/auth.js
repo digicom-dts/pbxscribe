@@ -18,15 +18,49 @@ async function authRoutes(fastify) {
   // POST /auth/register
   fastify.post('/auth/register', {
     schema: {
+      tags: ['Auth'],
+      summary: 'Register a new user',
+      description: 'Creates a new user account. If a password is supplied, a JWT token is returned immediately.',
       body: {
         type: 'object',
         required: ['email', 'name'],
         properties: {
           email: { type: 'string', format: 'email' },
           name: { type: 'string', minLength: 1, maxLength: 255 },
-          password: { type: 'string', minLength: 8 },
+          password: { type: 'string', minLength: 8, description: 'Optional. If omitted the account has no password credential.' },
         },
         additionalProperties: false,
+      },
+      response: {
+        201: {
+          type: 'object',
+          properties: {
+            user: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                email: { type: 'string', format: 'email' },
+                name: { type: 'string' },
+                status: { type: 'string', enum: ['active', 'inactive', 'suspended'] },
+                created_at: { type: 'string', format: 'date-time' },
+                updated_at: { type: 'string', format: 'date-time' },
+              },
+            },
+            token: { type: 'string', description: 'JWT token — only present when a password was supplied' },
+          },
+        },
+        409: {
+          type: 'object',
+          properties: {
+            error: {
+              type: 'object',
+              properties: {
+                message: { type: 'string' },
+                statusCode: { type: 'integer' },
+              },
+            },
+          },
+        },
       },
     },
   }, async (request, reply) => {
@@ -65,6 +99,9 @@ async function authRoutes(fastify) {
   // POST /auth/login
   fastify.post('/auth/login', {
     schema: {
+      tags: ['Auth'],
+      summary: 'Login with email and password',
+      description: 'Authenticates a user and returns a signed JWT token.',
       body: {
         type: 'object',
         required: ['email', 'password'],
@@ -73,6 +110,37 @@ async function authRoutes(fastify) {
           password: { type: 'string' },
         },
         additionalProperties: false,
+      },
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            token: { type: 'string', description: 'JWT bearer token' },
+            user: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', format: 'uuid' },
+                email: { type: 'string', format: 'email' },
+                name: { type: 'string' },
+                status: { type: 'string', enum: ['active', 'inactive', 'suspended'] },
+                created_at: { type: 'string', format: 'date-time' },
+                updated_at: { type: 'string', format: 'date-time' },
+              },
+            },
+          },
+        },
+        401: {
+          type: 'object',
+          properties: {
+            error: {
+              type: 'object',
+              properties: {
+                message: { type: 'string' },
+                statusCode: { type: 'integer' },
+              },
+            },
+          },
+        },
       },
     },
   }, async (request, reply) => {
@@ -114,6 +182,22 @@ async function authRoutes(fastify) {
   // GET /auth/me — protected
   fastify.get('/auth/me', {
     preHandler: [fastify.authenticate],
+    schema: {
+      tags: ['Auth'],
+      summary: 'Get current user',
+      description: 'Returns the authenticated user profile decoded from the JWT or API key.',
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            email: { type: 'string', format: 'email' },
+            name: { type: 'string' },
+          },
+        },
+      },
+    },
   }, async (request, reply) => {
     return request.user;
   });
@@ -122,6 +206,10 @@ async function authRoutes(fastify) {
   fastify.post('/auth/api-keys', {
     preHandler: [fastify.authenticate],
     schema: {
+      tags: ['Auth'],
+      summary: 'Create an API key',
+      description: 'Generates a new API key for the authenticated user. The plaintext key is only returned once.',
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
       body: {
         type: 'object',
         properties: {
@@ -129,6 +217,18 @@ async function authRoutes(fastify) {
           expires_in_days: { type: 'integer', minimum: 1, maximum: 365 },
         },
         additionalProperties: false,
+      },
+      response: {
+        201: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            key: { type: 'string', description: 'Plaintext API key — shown only once, store securely' },
+            label: { type: 'string', nullable: true },
+            expires_at: { type: 'string', format: 'date-time', nullable: true },
+            created_at: { type: 'string', format: 'date-time' },
+          },
+        },
       },
     },
   }, async (request, reply) => {
@@ -164,10 +264,29 @@ async function authRoutes(fastify) {
   fastify.delete('/auth/api-keys/:id', {
     preHandler: [fastify.authenticate],
     schema: {
+      tags: ['Auth'],
+      summary: 'Revoke an API key',
+      description: 'Deactivates an API key owned by the authenticated user.',
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
       params: {
         type: 'object',
         properties: {
           id: { type: 'string', format: 'uuid' },
+        },
+      },
+      response: {
+        204: { type: 'null', description: 'Key successfully revoked' },
+        404: {
+          type: 'object',
+          properties: {
+            error: {
+              type: 'object',
+              properties: {
+                message: { type: 'string' },
+                statusCode: { type: 'integer' },
+              },
+            },
+          },
         },
       },
     },

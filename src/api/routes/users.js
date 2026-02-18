@@ -28,6 +28,10 @@ async function userRoutes(fastify) {
   fastify.post('/users', {
     preHandler: [fastify.authenticate],
     schema: {
+      tags: ['Users'],
+      summary: 'Create a user',
+      description: 'Creates a new user record. Requires authentication.',
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
       body: {
         type: 'object',
         required: ['email', 'name'],
@@ -64,6 +68,10 @@ async function userRoutes(fastify) {
   fastify.get('/users', {
     preHandler: [fastify.authenticate],
     schema: {
+      tags: ['Users'],
+      summary: 'List users',
+      description: 'Returns a paginated list of users, optionally filtered by status.',
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
       querystring: {
         type: 'object',
         properties: {
@@ -96,6 +104,10 @@ async function userRoutes(fastify) {
   fastify.get('/users/:id', {
     preHandler: [fastify.authenticate],
     schema: {
+      tags: ['Users'],
+      summary: 'Get a user',
+      description: 'Returns a single user by UUID.',
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
       params: {
         type: 'object',
         properties: {
@@ -125,6 +137,10 @@ async function userRoutes(fastify) {
   fastify.put('/users/:id', {
     preHandler: [fastify.authenticate],
     schema: {
+      tags: ['Users'],
+      summary: 'Update a user',
+      description: 'Updates name and/or status of an existing user.',
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
       params: {
         type: 'object',
         properties: {
@@ -163,6 +179,10 @@ async function userRoutes(fastify) {
   fastify.delete('/users/:id', {
     preHandler: [fastify.authenticate],
     schema: {
+      tags: ['Users'],
+      summary: 'Delete a user',
+      description: 'Permanently deletes a user record by UUID.',
+      security: [{ bearerAuth: [] }, { apiKeyAuth: [] }],
       params: {
         type: 'object',
         properties: {
