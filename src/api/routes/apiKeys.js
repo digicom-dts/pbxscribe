@@ -58,7 +58,7 @@ async function apiKeyRoutes(fastify) {
         type: 'object',
         properties: {
           label: { type: 'string', maxLength: 100 },
-          expires_in_days: { type: 'integer', minimum: 1, maximum: 365 },
+          expires_in_days: { type: 'integer', minimum: 1, maximum: 365, default: 90 },
         },
         additionalProperties: false,
       },
@@ -76,13 +76,10 @@ async function apiKeyRoutes(fastify) {
       },
     },
   }, async (request, reply) => {
-    const { label, expires_in_days } = request.body || {};
+    const { label, expires_in_days = 90 } = request.body || {};
 
-    let expiresAt = null;
-    if (expires_in_days) {
-      expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + expires_in_days);
-    }
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + expires_in_days);
 
     const plainKey = generateApiKey();
     const hash = hashApiKey(plainKey);
