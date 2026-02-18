@@ -7,6 +7,7 @@ const healthRoutes = require('./routes/health');
 const migrateRoutes = require('./routes/migrate');
 const userRoutes = require('./routes/users');
 const authRoutes = require('./routes/auth');
+const apiKeyRoutes = require('./routes/apiKeys');
 
 /**
  * Initialize and configure Fastify application
@@ -59,6 +60,7 @@ async function init() {
     await fastify.register(migrateRoutes);
     await fastify.register(userRoutes);
     await fastify.register(authRoutes);
+    await fastify.register(apiKeyRoutes);
 
     // Root route
     fastify.get('/', {
