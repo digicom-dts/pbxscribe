@@ -23,11 +23,11 @@ async function authRoutes(fastify) {
       description: 'Creates a new user account. If a password is supplied, a JWT token is returned immediately.',
       body: {
         type: 'object',
-        required: ['email', 'name'],
+        required: ['email', 'name', 'password'],
         properties: {
           email: { type: 'string', format: 'email' },
           name: { type: 'string', minLength: 1, maxLength: 255 },
-          password: { type: 'string', minLength: 8, description: 'Optional. If omitted the account has no password credential.' },
+          password: { type: 'string', minLength: 8 },
         },
         additionalProperties: false,
       },
@@ -46,7 +46,7 @@ async function authRoutes(fastify) {
                 updated_at: { type: 'string', format: 'date-time' },
               },
             },
-            token: { type: 'string', description: 'JWT token — only present when a password was supplied' },
+            token: { type: 'string', description: 'JWT token' },
           },
         },
         409: {
@@ -78,22 +78,16 @@ async function authRoutes(fastify) {
       throw error;
     }
 
-    let token = null;
-    if (password) {
-      const hash = await hashPassword(password);
-      await createCredential(fastify.pg, {
-        userId: user.id,
-        credentialType: 'password',
-        credentialHash: hash,
-        label: 'password',
-      });
-      token = generateToken({ sub: user.id, email: user.email, name: user.name });
-    }
+    const hash = await hashPassword(password);
+    await createCredential(fastify.pg, {
+      userId: user.id,
+      credentialType: 'password',
+      credentialHash: hash,
+      label: 'password',
+    });
 
-    const response = { user };
-    if (token) response.token = token;
-
-    return reply.status(201).send(response);
+    const token = generateToken({ sub: user.id, email: user.email, name: user.name });
+    return reply.status(201).send({ user, token });
   });
 
   // POST /auth/login
