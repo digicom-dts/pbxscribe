@@ -13,12 +13,22 @@ async function migrateRoutes(fastify) {
    */
   fastify.post('/migrate', {
     schema: {
+      tags: ['Migrations'],
+      summary: 'Run database migrations',
+      description: 'Applies all pending SQL migrations. Protected by the `x-migration-secret` header.',
       headers: {
         type: 'object',
         properties: {
           'x-migration-secret': { type: 'string' }
         },
         required: ['x-migration-secret']
+      },
+      body: {
+        type: 'object',
+        properties: {
+          drop_tables: { type: 'boolean', description: 'Drop all tables and reset migration history before running migrations. Use with caution.' },
+        },
+        additionalProperties: false,
       },
       response: {
         200: {
@@ -83,8 +93,9 @@ async function migrateRoutes(fastify) {
     }
 
     try {
-      request.log.info('Running database migrations');
-      const result = await runMigrations();
+      const { drop_tables: dropTables = false } = request.body || {};
+      request.log.info(`Running database migrations${dropTables ? ' (drop tables enabled)' : ''}`);
+      const result = await runMigrations({ dropTables });
       request.log.info(`Migrations complete: ${result.message}`);
 
       return result;

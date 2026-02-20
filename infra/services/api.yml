@@ -194,6 +194,7 @@ Resources:
           DB_SECRET_ARN:
             Fn::ImportValue: !Sub '${ProjectName}-${Environment}-db-secret-arn'
           AWS_NODEJS_CONNECTION_REUSE_ENABLED: '1'
+          API_BASE_URL: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
           JWT_SECRET: !GetAtt JwtSecretParameter.Value
           MIGRATION_SECRET: !GetAtt MigrationSecretParameter.Value
       Code:
