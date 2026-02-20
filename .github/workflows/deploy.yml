@@ -63,33 +63,33 @@ jobs:
           BRANCH="${{ github.ref_name }}"
           ENV=""
 
-          # Priority 1: DEPLOY_BRANCH variable on each GitHub Environment.
-          # Set via setup-cicd.sh or directly in:
-          #   GitHub → Settings → Environments → <env> → Variables → DEPLOY_BRANCH
-          for candidate in dev staging prod; do
-            CONFIGURED=$(gh api \
-              "repos/${{ github.repository }}/environments/${candidate}/variables/DEPLOY_BRANCH" \
-              --jq '.value' 2>/dev/null || echo "")
-            if [ -n "$CONFIGURED" ] && [ "$CONFIGURED" = "$BRANCH" ]; then
-              ENV="$candidate"
-              break
-            fi
-          done
+          # Fast path: inline map (no API calls).
+          # setup-cicd.sh keeps this in sync with GitHub Environment variables.
+          case "$BRANCH" in
+            # BEGIN_BRANCH_MAP
+            main) ENV="dev" ;;
+            staging) ENV="staging" ;;
+            # END_BRANCH_MAP
+          esac
 
-          # Priority 2: Inline map — fallback when environment variables are not set.
-          # Kept in sync by setup-cicd.sh; can also be edited manually.
+          # Slow path: GitHub Environment DEPLOY_BRANCH variables.
+          # Only checked when the inline map has no match — allows deploying from
+          # a branch configured in GitHub without re-running setup-cicd.sh.
+          # Configure at: Settings → Environments → <env> → Variables → DEPLOY_BRANCH
           if [ -z "$ENV" ]; then
-            case "$BRANCH" in
-              # BEGIN_BRANCH_MAP
-              main) ENV="dev" ;;
-              staging) ENV="staging" ;;
-              # END_BRANCH_MAP
-              *) ENV="" ;;
-            esac
+            for candidate in dev staging prod; do
+              CONFIGURED=$(gh api \
+                "repos/${{ github.repository }}/environments/${candidate}/variables/DEPLOY_BRANCH" \
+                --jq '.value' 2>/dev/null || echo "")
+              if [ -n "$CONFIGURED" ] && [ "$CONFIGURED" = "$BRANCH" ]; then
+                ENV="$candidate"
+                break
+              fi
+            done
           fi
 
           if [ -z "$ENV" ]; then
-            echo "Branch '$BRANCH' has no environment mapping — skipping."
+            echo "Branch '$BRANCH' is not a deploy branch — skipping."
             exit 0
           fi
 
@@ -100,6 +100,7 @@ jobs:
   deploy:
     name: Deploy → ${{ needs.resolve-environment.outputs.environment }}
     needs: resolve-environment
+    if: needs.resolve-environment.outputs.environment != ''
     runs-on: ubuntu-latest
 
     # GitHub Environment — provides environment-scoped AWS_DEPLOY_ROLE_ARN
