@@ -62,6 +62,18 @@ async function init() {
         await fastify.register(authRoutes);
         await fastify.register(apiKeyRoutes);
 
+        // TODO: Remove this route once CI/CD is confirmed working
+        fastify.get('/deploy-check', async (request, reply) => {
+            return {
+                status: 'ok',
+                message: 'CI/CD deployment verified — remove this route when done',
+                environment: process.env.NODE_ENV || 'development',
+                lambdaFunction: process.env.AWS_LAMBDA_FUNCTION_NAME || 'local',
+                lambdaVersion: process.env.AWS_LAMBDA_FUNCTION_VERSION || 'local',
+                deployedAt: new Date().toISOString(),
+            };
+        });
+
         // Root route
         fastify.get('/', {
             schema: {

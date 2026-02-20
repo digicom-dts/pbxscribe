@@ -347,6 +347,89 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
 
+  # =============================================================================
+  # CodeDeploy — Blue-Green Lambda Deployments
+  # Managed by GitHub Actions CI/CD on push to main.
+  # Strategy: LambdaCanary10Percent5Minutes
+  #   → routes 10 % of traffic to the new version for 5 min,
+  #     then shifts to 100 % if no CloudWatch alarm fires.
+  # Auto-rollback: triggered on DEPLOYMENT_FAILURE or alarm breach.
+  # =============================================================================
+  CodeDeployServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-codedeploy-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSCodeDeployRoleForLambda
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-codedeploy-role'
+        - Key: Environment
+          Value: !Ref Environment
+
+  CodeDeployApplication:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ApplicationName: !Sub '${ProjectName}-${Environment}-api'
+      ComputePlatform: Lambda
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-api'
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Alarm monitors the 'live' alias during canary phase — fires CodeDeploy rollback
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub '${ProjectName}-${Environment}-api-errors'
+      AlarmDescription: !Sub 'Lambda error alarm for ${ProjectName} ${Environment} — triggers CodeDeploy auto-rollback'
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref ApiLambdaFunction
+        - Name: Resource
+          Value: !Sub '${ApiLambdaFunction}:live'
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 3
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  CodeDeployDeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref CodeDeployApplication
+      DeploymentGroupName: !Sub '${ProjectName}-${Environment}-api-dg'
+      ServiceRoleArn: !GetAtt CodeDeployServiceRole.Arn
+      DeploymentConfigName: CodeDeployDefault.LambdaCanary10Percent5Minutes
+      DeploymentStyle:
+        DeploymentType: BLUE_GREEN
+        DeploymentOption: WITH_TRAFFIC_CONTROL
+      AlarmConfiguration:
+        Enabled: true
+        Alarms:
+          - Name: !Ref LambdaErrorAlarm
+      AutoRollbackConfiguration:
+        Enabled: true
+        Events:
+          - DEPLOYMENT_FAILURE
+          - DEPLOYMENT_STOP_ON_ALARM
+      Tags:
+        - Key: Name
+          Value: !Sub '${ProjectName}-${Environment}-api-dg'
+        - Key: Environment
+          Value: !Ref Environment
+
 Outputs:
   LambdaFunctionArn:
     Description: Lambda Function ARN
@@ -391,3 +474,15 @@ Outputs:
   MigrationSecretParameterName:
     Description: SSM Parameter name for Migration secret
     Value: !Ref MigrationSecretParameter
+
+  CodeDeployApplicationName:
+    Description: CodeDeploy Application Name
+    Value: !Ref CodeDeployApplication
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-codedeploy-app'
+
+  CodeDeployDeploymentGroupName:
+    Description: CodeDeploy Deployment Group Name
+    Value: !Ref CodeDeployDeploymentGroup
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-codedeploy-dg'
