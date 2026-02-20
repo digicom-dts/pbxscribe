@@ -31,10 +31,7 @@ name: Deploy to Lambda (Blue-Green)
 
 on:
   push:
-    branches:
-      - develop  # → dev
-      - main     # → prod
-      - staging  # → staging
+    branches: ['**']  # All branches — unmapped ones exit early in resolve-environment
 
 env:
   AWS_REGION: us-east-2
@@ -52,14 +49,42 @@ jobs:
       - name: Map branch → environment
         id: map
         run: |
-          # Edit this mapping to match your branching strategy
-          case "${{ github.ref_name }}" in
-            main)    ENV="prod"    ;;
-            staging) ENV="staging" ;;
-            main)       ENV="dev"     ;;
-          esac
+          BRANCH="${{ github.ref_name }}"
+          ENV=""
+
+          # Priority 1: BRANCH_ENV_MAP repository variable.
+          # Set via setup-cicd.sh or directly in:
+          #   GitHub → Settings → Secrets and variables → Actions → Variables → BRANCH_ENV_MAP
+          # Format: branch:env,branch:env   e.g. develop:dev,main:prod,staging:staging
+          BRANCH_MAP="${{ vars.BRANCH_ENV_MAP }}"
+          if [ -n "$BRANCH_MAP" ]; then
+            ENV=$(BRANCH_MAP_VAR="$BRANCH_MAP" BRANCH_VAR="$BRANCH" python3 -c "
+import os
+mapping = dict(p.split(':',1) for p in os.environ['BRANCH_MAP_VAR'].split(',') if ':' in p)
+print(mapping.get(os.environ['BRANCH_VAR'], ''))
+")
+          fi
+
+          # Priority 2: Inline map — fallback when BRANCH_ENV_MAP variable is not set.
+          # Kept in sync by setup-cicd.sh; can also be edited manually.
+          if [ -z "$ENV" ]; then
+            case "$BRANCH" in
+              # BEGIN_BRANCH_MAP
+              develop) ENV="dev"     ;;
+              main)    ENV="prod"    ;;
+              staging) ENV="staging" ;;
+              # END_BRANCH_MAP
+              *) ENV="" ;;
+            esac
+          fi
+
+          if [ -z "$ENV" ]; then
+            echo "Branch '$BRANCH' has no environment mapping — skipping."
+            exit 0
+          fi
+
           echo "environment=$ENV" >> "$GITHUB_OUTPUT"
-          echo "Branch '${{ github.ref_name }}' → environment '$ENV'"
+          echo "Branch '$BRANCH' → environment '$ENV'"
 
   # ── Blue-green Lambda deployment ──────────────────────────────────────────
   deploy:

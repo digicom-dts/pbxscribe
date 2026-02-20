@@ -29,21 +29,7 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Load .env
-# ---------------------------------------------------------------------------
-if [ -f .env ]; then
-  while IFS= read -r line || [ -n "$line" ]; do
-    [[ "$line" =~ ^[[:space:]]*# ]] && continue
-    [[ -z "${line// }"            ]] && continue
-    key="${line%%=*}"
-    value="${line#*=}"
-    key="${key// /}"
-    [ -z "${!key+x}" ] && export "$key=$value"
-  done < .env
-fi
-
-# ---------------------------------------------------------------------------
-# Config
+# Resolve environment (needed before loading .env so we pick the right file)
 # ---------------------------------------------------------------------------
 if [[ "${1:-}" =~ ^(dev|staging|prod)$ ]]; then
   ENVIRONMENT="$1"
@@ -51,15 +37,39 @@ else
   ENVIRONMENT="${ENVIRONMENT:-dev}"
 fi
 
+# ---------------------------------------------------------------------------
+# Load .env.<environment>, falling back to .env
+# ---------------------------------------------------------------------------
+ENV_FILE=".env.${ENVIRONMENT}"
+[ -f "$ENV_FILE" ] || ENV_FILE=".env"
+
+if [ -f "$ENV_FILE" ]; then
+  echo "Loading config from $ENV_FILE"
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${line// }"            ]] && continue
+    key="${line%%=*}"
+    value="${line#*=}"
+    key="${key// /}"
+    [ -z "${!key+x}" ] && export "$key=$value"
+  done < "$ENV_FILE"
+fi
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
 PROJECT_NAME="pbxscribe-api-backend"
 AWS_REGION="${AWS_REGION:-us-east-2}"
 AWS_PROFILE="${AWS_PROFILE:-default}"
 GITHUB_ORG="${GITHUB_ORG:?GITHUB_ORG is not set. Add it to .env or the environment.}"
 GITHUB_REPO="${GITHUB_REPO:?GITHUB_REPO is not set. Add it to .env or the environment.}"
+DEPLOY_BRANCH="${DEPLOY_BRANCH:?DEPLOY_BRANCH is not set. Add it to $ENV_FILE.}"
 
 OIDC_STACK_NAME="${PROJECT_NAME}-${ENVIRONMENT}-github-oidc"
 API_STACK_NAME="${PROJECT_NAME}-${ENVIRONMENT}-api"
 GITHUB_SECRET_NAME="AWS_DEPLOY_ROLE_ARN"
+DEPLOY_WORKFLOW=".github/workflows/deploy.yml"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -70,6 +80,53 @@ fail() { echo "✗ $*" >&2; exit 1; }
 
 aws_cmd() {
   aws --profile "$AWS_PROFILE" --region "$AWS_REGION" "$@"
+}
+
+# Updates the BEGIN_BRANCH_MAP…END_BRANCH_MAP block in deploy.yml so that
+# DEPLOY_BRANCH → ENVIRONMENT is always in sync with the env file.
+patch_deploy_workflow() {
+  local env="$1" branch="$2" workflow="$3"
+
+  python3 - "$env" "$branch" "$workflow" <<'PYEOF'
+import re, sys
+
+env, branch, workflow = sys.argv[1], sys.argv[2], sys.argv[3]
+
+with open(workflow, 'r') as f:
+    content = f.read()
+
+m = re.search(
+    r'([ \t]*# BEGIN_BRANCH_MAP[^\n]*\n)(.*?)([ \t]*# END_BRANCH_MAP)',
+    content, re.DOTALL
+)
+if not m:
+    print('ERROR: BEGIN_BRANCH_MAP sentinel not found in ' + workflow, file=sys.stderr)
+    sys.exit(1)
+
+header, block, footer = m.group(1), m.group(2), m.group(3)
+
+# Detect indentation from existing lines
+indent = '            '
+for line in block.splitlines():
+    stripped = line.lstrip()
+    if stripped and not stripped.startswith('#'):
+        indent = line[:len(line) - len(stripped)]
+        break
+
+# Remove any existing entry for this environment, then add updated one
+lines = [l for l in block.splitlines() if f'ENV="{env}"' not in l]
+lines = [l for l in lines if l.strip()]  # drop blank lines
+lines.append(f'{indent}{branch}) ENV="{env}" ;;')
+lines.sort()  # stable alphabetical order
+
+new_block = '\n'.join(lines) + '\n'
+content = content[:m.start(1)] + header + new_block + footer + content[m.end(3):]
+
+with open(workflow, 'w') as f:
+    f.write(content)
+
+print(f'  deploy.yml: {branch} → {env}')
+PYEOF
 }
 
 # ---------------------------------------------------------------------------
@@ -90,6 +147,7 @@ echo
 # ---------------------------------------------------------------------------
 log "CI/CD setup"
 echo "  Environment   : $ENVIRONMENT"
+echo "  Deploy branch : $DEPLOY_BRANCH"
 echo "  Project       : $PROJECT_NAME"
 echo "  AWS Region    : $AWS_REGION"
 echo "  AWS Profile   : $AWS_PROFILE"
@@ -97,6 +155,51 @@ echo "  GitHub repo   : ${GITHUB_ORG}/${GITHUB_REPO}"
 echo "  OIDC stack    : $OIDC_STACK_NAME"
 echo "  API stack     : $API_STACK_NAME"
 echo "  GitHub secret : ${GITHUB_SECRET_NAME} (stored in '${ENVIRONMENT}' environment)"
+echo
+
+# ---------------------------------------------------------------------------
+# Step 0: Patch deploy.yml branch → environment mapping
+# ---------------------------------------------------------------------------
+log "Updating branch mapping in $DEPLOY_WORKFLOW..."
+
+[ -f "$DEPLOY_WORKFLOW" ] || fail "$DEPLOY_WORKFLOW not found. Run from the repo root."
+
+patch_deploy_workflow "$ENVIRONMENT" "$DEPLOY_BRANCH" "$DEPLOY_WORKFLOW"
+
+ok "deploy.yml updated: $DEPLOY_BRANCH → $ENVIRONMENT"
+echo "  Commit and push $DEPLOY_WORKFLOW to apply the inline fallback mapping."
+echo
+
+log "Updating BRANCH_ENV_MAP repository variable..."
+
+# Fetch current value (empty string if not yet set)
+CURRENT_MAP=$(gh api \
+  "repos/${GITHUB_ORG}/${GITHUB_REPO}/actions/variables/BRANCH_ENV_MAP" \
+  --jq '.value' 2>/dev/null || echo "")
+
+# Merge: remove any existing entry for this environment, then add the new one
+NEW_MAP=$(CURRENT_MAP="$CURRENT_MAP" TARGET_ENV="$ENVIRONMENT" TARGET_BRANCH="$DEPLOY_BRANCH" \
+  python3 -c "
+import os
+current  = os.environ.get('CURRENT_MAP', '')
+env      = os.environ['TARGET_ENV']
+branch   = os.environ['TARGET_BRANCH']
+entries  = dict(p.split(':',1) for p in current.split(',') if ':' in p)
+entries  = {b: e for b, e in entries.items() if e != env}
+entries[branch] = env
+print(','.join(f'{b}:{e}' for b, e in sorted(entries.items())))
+")
+
+gh api \
+  --method PUT \
+  -H "Accept: application/vnd.github+json" \
+  "repos/${GITHUB_ORG}/${GITHUB_REPO}/actions/variables/BRANCH_ENV_MAP" \
+  -f name="BRANCH_ENV_MAP" \
+  -f value="$NEW_MAP" \
+  > /dev/null
+
+ok "BRANCH_ENV_MAP set to: $NEW_MAP"
+echo "  Edit anytime at: GitHub → Settings → Secrets and variables → Actions → Variables"
 echo
 
 # ---------------------------------------------------------------------------
