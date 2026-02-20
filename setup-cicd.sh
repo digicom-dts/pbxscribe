@@ -113,8 +113,9 @@ for line in block.splitlines():
         indent = line[:len(line) - len(stripped)]
         break
 
-# Remove any existing entry for this environment, then add updated one
-lines = [l for l in block.splitlines() if f'ENV="{env}"' not in l]
+# Remove any existing entry for this environment OR this branch (avoid duplicates)
+lines = [l for l in block.splitlines()
+         if f'ENV="{env}"' not in l and not l.strip().startswith(f'{branch})')]
 lines = [l for l in lines if l.strip()]  # drop blank lines
 lines.append(f'{indent}{branch}) ENV="{env}" ;;')
 lines.sort()  # stable alphabetical order
@@ -168,38 +169,6 @@ patch_deploy_workflow "$ENVIRONMENT" "$DEPLOY_BRANCH" "$DEPLOY_WORKFLOW"
 
 ok "deploy.yml updated: $DEPLOY_BRANCH → $ENVIRONMENT"
 echo "  Commit and push $DEPLOY_WORKFLOW to apply the inline fallback mapping."
-echo
-
-log "Updating BRANCH_ENV_MAP repository variable..."
-
-# Fetch current value (empty string if not yet set)
-CURRENT_MAP=$(gh api \
-  "repos/${GITHUB_ORG}/${GITHUB_REPO}/actions/variables/BRANCH_ENV_MAP" \
-  --jq '.value' 2>/dev/null || echo "")
-
-# Merge: remove any existing entry for this environment, then add the new one
-NEW_MAP=$(CURRENT_MAP="$CURRENT_MAP" TARGET_ENV="$ENVIRONMENT" TARGET_BRANCH="$DEPLOY_BRANCH" \
-  python3 -c "
-import os
-current  = os.environ.get('CURRENT_MAP', '')
-env      = os.environ['TARGET_ENV']
-branch   = os.environ['TARGET_BRANCH']
-entries  = dict(p.split(':',1) for p in current.split(',') if ':' in p)
-entries  = {b: e for b, e in entries.items() if e != env}
-entries[branch] = env
-print(','.join(f'{b}:{e}' for b, e in sorted(entries.items())))
-")
-
-gh api \
-  --method PUT \
-  -H "Accept: application/vnd.github+json" \
-  "repos/${GITHUB_ORG}/${GITHUB_REPO}/actions/variables/BRANCH_ENV_MAP" \
-  -f name="BRANCH_ENV_MAP" \
-  -f value="$NEW_MAP" \
-  > /dev/null
-
-ok "BRANCH_ENV_MAP set to: $NEW_MAP"
-echo "  Edit anytime at: GitHub → Settings → Secrets and variables → Actions → Variables"
 echo
 
 # ---------------------------------------------------------------------------
@@ -276,6 +245,15 @@ echo "$DEPLOY_ROLE_ARN" | gh secret set "$GITHUB_SECRET_NAME" \
   --repo "${GITHUB_ORG}/${GITHUB_REPO}"
 
 ok "Secret set in '${ENVIRONMENT}' environment (not visible at repo level)"
+
+log "Setting DEPLOY_BRANCH variable in '${ENVIRONMENT}' environment..."
+
+gh variable set "DEPLOY_BRANCH" \
+  --env "$ENVIRONMENT" \
+  --repo "${GITHUB_ORG}/${GITHUB_REPO}" \
+  --body "$DEPLOY_BRANCH"
+
+ok "DEPLOY_BRANCH=$DEPLOY_BRANCH (edit at: GitHub → Settings → Environments → ${ENVIRONMENT} → Variables)"
 echo
 
 # ---------------------------------------------------------------------------

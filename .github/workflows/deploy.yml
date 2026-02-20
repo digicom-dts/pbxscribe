@@ -43,35 +43,38 @@ jobs:
   resolve-environment:
     name: Resolve Environment
     runs-on: ubuntu-latest
+    permissions:
+      contents: read   # default token — needed to call GitHub API below
     outputs:
       environment: ${{ steps.map.outputs.environment }}
     steps:
       - name: Map branch → environment
         id: map
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           BRANCH="${{ github.ref_name }}"
           ENV=""
 
-          # Priority 1: BRANCH_ENV_MAP repository variable.
+          # Priority 1: DEPLOY_BRANCH variable on each GitHub Environment.
           # Set via setup-cicd.sh or directly in:
-          #   GitHub → Settings → Secrets and variables → Actions → Variables → BRANCH_ENV_MAP
-          # Format: branch:env,branch:env   e.g. develop:dev,main:prod,staging:staging
-          BRANCH_MAP="${{ vars.BRANCH_ENV_MAP }}"
-          if [ -n "$BRANCH_MAP" ]; then
-            ENV=$(BRANCH_MAP_VAR="$BRANCH_MAP" BRANCH_VAR="$BRANCH" python3 -c "
-import os
-mapping = dict(p.split(':',1) for p in os.environ['BRANCH_MAP_VAR'].split(',') if ':' in p)
-print(mapping.get(os.environ['BRANCH_VAR'], ''))
-")
-          fi
+          #   GitHub → Settings → Environments → <env> → Variables → DEPLOY_BRANCH
+          for candidate in dev staging prod; do
+            CONFIGURED=$(gh api \
+              "repos/${{ github.repository }}/environments/${candidate}/variables/DEPLOY_BRANCH" \
+              --jq '.value' 2>/dev/null || echo "")
+            if [ -n "$CONFIGURED" ] && [ "$CONFIGURED" = "$BRANCH" ]; then
+              ENV="$candidate"
+              break
+            fi
+          done
 
-          # Priority 2: Inline map — fallback when BRANCH_ENV_MAP variable is not set.
+          # Priority 2: Inline map — fallback when environment variables are not set.
           # Kept in sync by setup-cicd.sh; can also be edited manually.
           if [ -z "$ENV" ]; then
             case "$BRANCH" in
               # BEGIN_BRANCH_MAP
-              develop) ENV="dev"     ;;
-              main)    ENV="prod"    ;;
+              main) ENV="dev" ;;
               staging) ENV="staging" ;;
               # END_BRANCH_MAP
               *) ENV="" ;;
