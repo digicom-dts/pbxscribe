@@ -2,15 +2,22 @@
 # Blue-Green Lambda Deployment via AWS CodeDeploy
 #
 # BRANCH → ENVIRONMENT MAPPING
+# Configured via DEPLOY_BRANCH variable on each GitHub Environment.
+# Change without touching code:
+#   GitHub → Settings → Environments → <env> → Variables → DEPLOY_BRANCH
+# Or run setup-cicd.sh to set it and keep deploy.yml in sync:
+#   ./setup-cicd.sh dev
+#
+# Current mapping (reflects GitHub Environment variables):
 # ┌──────────────┬─────────────┬───────────────────────────────────────────┐
-# │ Branch       │ Environment │ Notes                                     │
+# │ DEPLOY_BRANCH│ Environment │ Notes                                     │
 # ├──────────────┼─────────────┼───────────────────────────────────────────┤
-# │ develop      │ dev         │ Auto-deploys on every push                │
-# │ main         │ prod        │ Requires approval (configure in GitHub)   │
-# │ staging      │ staging     │ Auto-deploys on every push                │
+# │ (GitHub var) │ dev         │ Set via Settings → Environments → dev     │
+# │ (GitHub var) │ staging     │ Set via Settings → Environments → staging │
+# │ (GitHub var) │ prod        │ Set via Settings → Environments → prod    │
 # └──────────────┴─────────────┴───────────────────────────────────────────┘
-# To change the mapping, edit the 'Map branch → environment' step below.
-# To use the same branch for all envs, just keep one entry in the mapping.
+# Fallback: inline case map in 'Map branch → environment' step (kept in sync
+# by setup-cicd.sh). Active when GitHub Environment variables are not set.
 #
 # ISOLATION GUARANTEE
 # Each environment has its own AWS_DEPLOY_ROLE_ARN secret stored at the
